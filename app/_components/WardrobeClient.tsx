@@ -209,7 +209,7 @@ function buildOutfit(
   if (scene === "gym" && shoes?.subtype !== "运动鞋") {
     limitation = "衣橱里没有已确认的运动鞋，今天仍选了现有鞋中最合适的一双；正式训练前需要确认它的支撑和防滑是否合适。";
   } else if (counts.every((count) => count === 1)) {
-    limitation = "当前每个必要品类都只有一个可穿选择，这套可以穿，但还没有足够的比较空间。";
+    limitation = "你现在每一类衣服都只有一件可以选，所以今天先这样穿。以后多添几件，我再帮你换出不同搭法。";
   }
 
   const top = selected.find((item) => item.category === "top");
@@ -269,7 +269,7 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
         const saved = window.localStorage.getItem(STORAGE_KEY);
         if (saved) setData(JSON.parse(saved) as WardrobeData);
       } catch {
-        setNotice("本机保存的资料没有读取成功，你可以重新开始录入。 ");
+        setNotice("衣橱没有打开成功，请刷新后再试。 ");
       } finally {
         setHydrated(true);
       }
@@ -357,7 +357,7 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
       (candidate) => available.filter((item) => item.category === candidate).length > 1,
     );
     if (!category) {
-      setNotice("现在每个品类都只有一个可穿选择，还没有能替换的衣物。再补录一件后就可以换。 ");
+      setNotice("现在每一类都只有一件可以选。再添一件同类衣服，就能试试别的搭法。 ");
       return;
     }
     const candidates = available
@@ -367,7 +367,7 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
     const index = Math.max(0, candidates.findIndex((item) => item.id === current?.id));
     const next = candidates[(index + 1) % candidates.length];
     setOverrides((previous) => ({ ...previous, [category]: next.id }));
-    setNotice(`已经替换${categoryLabels[category]}。新的选择更偏向另一种风格，你仍然可以直接采用。`);
+    setNotice(`${categoryLabels[category]}已经换好了。看看这一套是不是更像你。`);
   }
 
   function confirmWear() {
@@ -472,12 +472,12 @@ function StartScreen({
       <div className="ambient ambient-two" />
       <section className="start-content">
         <div className="brand-chip">穿搭助手</div>
-        <p className="eyebrow">每天少做一个选择</p>
-        <h1>先录几件，<br />马上看到第一套。</h1>
-        <p className="start-copy">它只使用你真实拥有、当前能穿的衣服。先给今天的答案，再解释为什么这样搭。</p>
+        <p className="eyebrow">出门前，少纠结一会儿</p>
+        <h1>今天穿什么，<br />让衣橱帮你想。</h1>
+        <p className="start-copy">先告诉我你通常从哪里出门，我会把当地天气算进每天的搭配里。</p>
 
         <form className="glass-panel city-form" onSubmit={saveCity}>
-          <label htmlFor="city">你的常用城市</label>
+          <label htmlFor="city">你通常从哪里出门？</label>
           <div className="city-row">
             <input
               id="city"
@@ -491,18 +491,13 @@ function StartScreen({
               {Object.keys(knownCities).map((name) => <option value={name} key={name} />)}
             </datalist>
             <button type="submit" className="primary-button compact" disabled={saving}>
-              {saving ? "正在保存" : "开始录入"}
+              {saving ? "正在保存" : "下一步"}
             </button>
           </div>
           {notice && <p className="inline-notice" role="alert">{notice}</p>}
         </form>
 
-        <div className="promise-list" aria-label="使用说明">
-          <p><span>01</span> 类别、颜色和状态确认后就能加入</p>
-          <p><span>02</span> 同款袜子按组记录，不用逐双拍照</p>
-          <p><span>03</span> 上衣、下装、鞋和袜子齐了就先推荐</p>
-        </div>
-        <p className="local-note">资料只保存在当前浏览器；清除浏览器数据前记得备份。</p>
+        <p className="local-note">你的衣服照片和穿搭记录只保存在这台设备的当前浏览器里。</p>
       </section>
     </main>
   );
@@ -585,7 +580,7 @@ function AddScreen({
       return;
     }
     setPhoto("");
-    setMessage(`${categoryLabels[category]}已加入。再补一个缺少的品类，就更接近第一套了。`);
+    setMessage(`${color}${subtype}已经收好。再添一件没打勾的衣服，就能看到第一套。`);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -602,7 +597,7 @@ function AddScreen({
 
       <section className="form-content">
         <div className="progress-copy">
-          <p>先完成四个必要品类</p>
+          <p>{progress.completed.length === 4 ? "已经可以开始搭配" : `第一套还差 ${4 - progress.completed.length} 样`}</p>
           <strong>{progress.completed.length} / 4</strong>
         </div>
         <div className="progress-track"><span style={{ width: `${progress.completed.length * 25}%` }} /></div>
@@ -616,7 +611,7 @@ function AddScreen({
 
         <form className="garment-form" onSubmit={submit}>
           <label className={`photo-picker ${photo ? "has-photo" : ""}`}>
-            {photo ? <img src={photo} alt="待加入衣物预览" /> : <div><b>＋</b><span>{photoBusy ? "正在处理照片…" : "拍照或从相册选择"}</span><small>尽量只拍一件，颜色更容易看清</small></div>}
+            {photo ? <img src={photo} alt="准备添加的衣服" /> : <div><b>＋</b><span>{photoBusy ? "正在处理照片…" : "拍照或从相册选择"}</span><small>平铺或挂起来拍，更容易看清颜色</small></div>}
             <input type="file" accept="image/*" capture="environment" onChange={pickPhoto} />
           </label>
 
@@ -667,7 +662,7 @@ function AddScreen({
           )}
 
           <details className="optional-fields">
-            <summary>补充材质、厚薄和常用场景 <span>选填</span></summary>
+            <summary>多告诉我一点，搭配会更贴近你 <span>选填</span></summary>
             <div className="two-fields">
               <label>材质
                 <select value={material} onChange={(event) => setMaterial(event.target.value)}>
@@ -688,7 +683,7 @@ function AddScreen({
           </details>
 
           {message && <p className="form-message" role="status">{message}</p>}
-          <button className="primary-button full" type="submit" disabled={photoBusy}>确认加入衣橱</button>
+          <button className="primary-button full" type="submit" disabled={photoBusy}>放进我的衣橱</button>
         </form>
       </section>
     </main>
@@ -702,19 +697,19 @@ function ReadyScreen({ garments }: { garments: Garment[] }) {
       <div className="ambient ambient-one" />
       <section className="ready-content glass-panel">
         <div className="ready-check">✓</div>
-        <p className="eyebrow">第一套已经可以开始</p>
-        <h1>最低衣橱完成</h1>
-        <p className="ready-lead">你已经具备一套完整穿搭需要的品类。现在先解决“今天穿什么”，以后再慢慢补录。</p>
+        <p className="eyebrow">可以开始搭了</p>
+        <h1>你的第一套准备好了</h1>
+        <p className="ready-lead">不用一次把整个衣柜都搬进来。先看看今天怎么穿，其他衣服以后慢慢添加。</p>
         <div className="ready-categories">
           {(["top", "bottom", "shoes", "socks"] as Category[]).map((category) => (
             <div key={category}><span>✓</span><p>{categoryLabels[category]}</p><strong>{counts(category)}</strong></div>
           ))}
         </div>
         <div className="honest-note">
-          现在每个品类的选择还少，第一套只能证明“可以穿”。继续补录后，系统才会有真正的比较空间。
+          衣服越多，遇到不同天气和场合时，能换的搭法也会更多。
         </div>
-        <button className="primary-button full" type="button" onClick={() => navigate("/today")}>马上看第一套</button>
-        <button className="secondary-button full" type="button" onClick={() => navigate("/wardrobe/add")}>继续录入衣物</button>
+        <button className="primary-button full" type="button" onClick={() => navigate("/today")}>看看今天穿什么</button>
+        <button className="secondary-button full" type="button" onClick={() => navigate("/wardrobe/add")}>再添几件衣服</button>
       </section>
     </main>
   );
@@ -753,9 +748,9 @@ function TodayScreen({
     return (
       <main className="weather-shell empty-shell">
         <section className="glass-panel empty-panel">
-          <h1>先保存常用城市</h1>
-          <p>地址确定后，天气才能参与今天的穿搭。</p>
-          <button className="primary-button full" type="button" onClick={() => navigate("/start")}>去设置城市</button>
+          <h1>你今天从哪里出门？</h1>
+          <p>告诉我城市，我才能按今天的温度帮你挑衣服。</p>
+          <button className="primary-button full" type="button" onClick={() => navigate("/start")}>选择城市</button>
         </section>
       </main>
     );
@@ -796,15 +791,15 @@ function TodayScreen({
           <section className="success-panel glass-panel">
             <div className="ready-check">✓</div>
             <h1>今天就穿这套</h1>
-            <p>已经记下这次选择。袜子组的干净数量也同步减少了 1；其他衣物等你穿完后再确认状态。</p>
-            <button className="secondary-button full" type="button" onClick={() => navigate("/wardrobe/add")}>继续补录衣物</button>
+            <p>好，今天就这么穿。袜子已经算作穿过，其他衣服等你回来后再确认。</p>
+            <button className="secondary-button full" type="button" onClick={() => navigate("/wardrobe/add")}>再添一件衣服</button>
           </section>
         ) : outfit?.missing.length ? (
           <section className="missing-panel glass-panel">
-            <p className="eyebrow">还不能组成真实完整的一套</p>
-            <h1>现在缺少：{outfit.missing.join("、")}</h1>
-            <p>我不会用不存在或正在洗的衣物补位。补齐当前能穿的品类后，就能直接给你一整套。</p>
-            <button className="primary-button full" type="button" onClick={() => navigate("/wardrobe/add")}>去补录衣物</button>
+            <p className="eyebrow">还差一件就能出门</p>
+            <h1>衣橱里还没有能穿的{outfit.missing.join("、")}</h1>
+            <p>添上以后，我就能把今天这一整套搭出来。</p>
+            <button className="primary-button full" type="button" onClick={() => navigate("/wardrobe/add")}>去添加衣服</button>
           </section>
         ) : outfit && outfit.items.length > 0 ? (
           <>
@@ -824,7 +819,7 @@ function TodayScreen({
               <div><span>天气</span><p>{outfit.reasons[1]}</p></div>
               <div><span>搭配</span><p>{outfit.reasons[2]}</p></div>
             </section>
-            {outfit.limitation && <p className="limitation"><b>目前的实际限制</b>{outfit.limitation}</p>}
+            {outfit.limitation && <p className="limitation"><b>有一件事要提醒你</b>{outfit.limitation}</p>}
             {notice && <p className="inline-notice today-notice" role="status">{notice}</p>}
             <div className="today-actions">
               <button className="secondary-button" type="button" onClick={swapOne}>换一件</button>

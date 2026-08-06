@@ -23,16 +23,41 @@ test("renders all four first-phase routes", async () => {
 
 test("uses the approved product language without internal product copy", async () => {
   const source = await readFile(new URL("../app/_components/WardrobeClient.tsx", import.meta.url), "utf8");
+  assert.match(source, /今天穿什么，/);
+  assert.match(source, /让衣橱帮你想/);
   assert.match(source, /今天建议穿这套/);
   assert.match(source, /为什么这样穿/);
   assert.match(source, /今天穿这套/);
-  assert.match(source, /只使用你真实拥有/);
-  assert.doesNotMatch(source, />[^<]*(?:MVP|Agent|Schema|规则 ID|置信度分数)[^<]*</i);
+
+  const forbiddenUiPhrases = [
+    "先录几件",
+    "开始录入",
+    "录入",
+    "最低衣橱",
+    "必要品类",
+    "品类",
+    "比较空间",
+    "类别、颜色和状态",
+    "齐了就先推荐",
+    "补录",
+    "系统",
+    "MVP",
+    "Agent",
+    "Schema",
+    "规则 ID",
+    "置信度",
+    "产品北极星",
+    "候选组合",
+    "验收",
+  ];
+  for (const phrase of forbiddenUiPhrases) {
+    assert.doesNotMatch(source, new RegExp(phrase), `界面中不应出现团队语言：${phrase}`);
+  }
 });
 
 test("keeps unavailable clothing outside the recommendation pool", async () => {
   const source = await readFile(new URL("../app/_components/WardrobeClient.tsx", import.meta.url), "utf8");
   assert.match(source, /item\.state === "ready"/);
   assert.match(source, /item\.cleanCount \?\? 0/);
-  assert.match(source, /我不会用不存在或正在洗的衣物补位/);
+  assert.match(source, /衣橱里还没有能穿的/);
 });
