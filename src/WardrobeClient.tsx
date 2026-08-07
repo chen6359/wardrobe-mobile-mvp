@@ -1,7 +1,4 @@
-"use client";
-
 /* User-selected data URLs are rendered directly because they are device-local previews. */
-/* eslint-disable @next/next/no-img-element */
 
 import {
   ChangeEvent,
@@ -10,7 +7,7 @@ import {
   useState,
 } from "react";
 
-type View = "home" | "start" | "add" | "ready" | "today";
+export type View = "home" | "start" | "add" | "ready" | "today";
 type Category = "top" | "bottom" | "shoes" | "socks" | "outer";
 type Scene = "work" | "gym" | "leisure";
 type GarmentState = "ready" | "laundry" | "washing" | "repair" | "unavailable";
@@ -108,7 +105,8 @@ const knownCities: Record<string, Omit<Profile, "city">> = {
 };
 
 function navigate(path: string) {
-  window.location.href = path;
+  window.location.hash = path;
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function weatherDescription(code: number) {

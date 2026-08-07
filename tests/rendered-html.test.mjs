@@ -1,28 +1,27 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 
-async function render(pathname = "/") {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}-${pathname}`);
-  const { default: worker } = await import(workerUrl.href);
-  return worker.fetch(
-    new Request(`http://localhost${pathname}`, { headers: { accept: "text/html" } }),
-    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
-    { waitUntil() {}, passThroughOnException() {} },
-  );
-}
+test("builds a self-contained static entry for GitHub Pages", async () => {
+  const html = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
+  const assets = await readdir(new URL("../dist/assets/", import.meta.url));
+  assert.match(html, /<div id="root"><\/div>/);
+  assert.match(html, /\.\/assets\/.+\.js/);
+  assert.match(html, /\.\/assets\/.+\.css/);
+  assert.ok(assets.some((file) => file.endsWith(".js")));
+  assert.ok(assets.some((file) => file.endsWith(".css")));
+});
 
-test("renders all four first-phase routes", async () => {
+test("keeps all first-phase views behind share-safe hash routes", async () => {
+  const source = await readFile(new URL("../src/main.tsx", import.meta.url), "utf8");
   for (const pathname of ["/", "/start", "/wardrobe/add", "/wardrobe/ready", "/today"]) {
-    const response = await render(pathname);
-    assert.equal(response.status, 200, pathname);
-    assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
+    assert.match(source, new RegExp(`"${pathname.replaceAll("/", "\\/")}"`), pathname);
   }
+  assert.match(source, /hashchange/);
 });
 
 test("uses the approved product language without internal product copy", async () => {
-  const source = await readFile(new URL("../app/_components/WardrobeClient.tsx", import.meta.url), "utf8");
+  const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
   assert.match(source, /今天穿什么，/);
   assert.match(source, /让衣橱帮你想/);
   assert.match(source, /今天建议穿这套/);
@@ -56,7 +55,7 @@ test("uses the approved product language without internal product copy", async (
 });
 
 test("keeps unavailable clothing outside the recommendation pool", async () => {
-  const source = await readFile(new URL("../app/_components/WardrobeClient.tsx", import.meta.url), "utf8");
+  const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
   assert.match(source, /item\.state === "ready"/);
   assert.match(source, /item\.cleanCount \?\? 0/);
   assert.match(source, /衣橱里还没有能穿的/);
