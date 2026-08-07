@@ -12,9 +12,18 @@ test("builds a self-contained static entry for GitHub Pages", async () => {
   assert.ok(assets.some((file) => file.endsWith(".css")));
 });
 
-test("keeps all first-phase views behind share-safe hash routes", async () => {
+test("keeps the full wardrobe loop behind share-safe hash routes", async () => {
   const source = await readFile(new URL("../src/main.tsx", import.meta.url), "utf8");
-  for (const pathname of ["/", "/start", "/wardrobe/add", "/wardrobe/ready", "/today"]) {
+  for (const pathname of [
+    "/",
+    "/start",
+    "/wardrobe/add",
+    "/wardrobe/ready",
+    "/wear/status",
+    "/wardrobe/laundry",
+    "/wardrobe",
+    "/today",
+  ]) {
     assert.match(source, new RegExp(`"${pathname.replaceAll("/", "\\/")}"`), pathname);
   }
   assert.match(source, /hashchange/);
@@ -27,6 +36,10 @@ test("uses the approved product language without internal product copy", async (
   assert.match(source, /今天建议穿这套/);
   assert.match(source, /为什么这样穿/);
   assert.match(source, /今天穿这套/);
+  assert.match(source, /这套穿完了，整理一下/);
+  assert.match(source, /挂回衣架/);
+  assert.match(source, /放进脏衣篓/);
+  assert.match(source, /洗净并晾干，放回衣架/);
 
   const forbiddenUiPhrases = [
     "先录几件",
@@ -48,6 +61,7 @@ test("uses the approved product language without internal product copy", async (
     "产品北极星",
     "候选组合",
     "验收",
+    "维修中",
   ];
   for (const phrase of forbiddenUiPhrases) {
     assert.doesNotMatch(source, new RegExp(phrase), `界面中不应出现团队语言：${phrase}`);
@@ -59,4 +73,8 @@ test("keeps unavailable clothing outside the recommendation pool", async () => {
   assert.match(source, /item\.state === "ready"/);
   assert.match(source, /item\.cleanCount \?\? 0/);
   assert.match(source, /衣橱里还没有能穿的/);
+  assert.match(source, /applyWearPlacements/);
+  assert.match(source, /state: "laundry"/);
+  assert.match(source, /restoreCleanGarments/);
+  assert.match(source, /needsSorting: false/);
 });

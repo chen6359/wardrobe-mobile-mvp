@@ -215,7 +215,7 @@ select:focus {
 
 .primary-button:disabled {
   opacity: .58;
-  cursor: wait;
+  cursor: not-allowed;
 }
 
 .primary-button.compact {
@@ -979,14 +979,14 @@ select:focus {
   margin-top: 14px;
 }
 
-.today-footer {
+.bottom-nav {
   position: fixed;
   z-index: 7;
   right: 0;
   bottom: 0;
   left: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(4, 1fr);
   min-height: 66px;
   padding: 9px max(18px, calc((100vw - 480px) / 2 + 18px)) max(9px, env(safe-area-inset-bottom));
   border-top: 1px solid rgba(47,88,126,.1);
@@ -994,16 +994,405 @@ select:focus {
   backdrop-filter: blur(22px);
 }
 
-.today-footer button {
+.bottom-nav button {
   border: 0;
   color: #567087;
   background: transparent;
   font-size: 13px;
   font-weight: 700;
+  cursor: pointer;
 }
 
-.today-footer button:first-child {
+.bottom-nav button.selected {
   color: var(--blue);
+}
+
+.sorting-shell {
+  min-height: 100svh;
+  background:
+    radial-gradient(circle at 88% 3%, rgba(255,255,255,.74), transparent 20%),
+    linear-gradient(165deg, #62b2ef 0%, #addbfa 40%, #edf8ff 100%);
+}
+
+.sorting-content {
+  width: min(100%, 480px);
+  margin: 0 auto;
+  padding: max(34px, env(safe-area-inset-top)) 16px 42px;
+}
+
+.sorting-content > .eyebrow {
+  margin: 0 0 7px;
+}
+
+.sorting-content > h1 {
+  margin: 0;
+  color: #103b63;
+  font-size: 31px;
+  letter-spacing: -.04em;
+}
+
+.sorting-intro {
+  margin: 10px 0 18px;
+  color: rgba(17,59,96,.7);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.sort-tray,
+.drop-zone {
+  border-radius: 22px;
+  padding: 14px;
+}
+
+.sort-tray header,
+.drop-zone header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sort-tray h2,
+.drop-zone h2 {
+  margin: 0;
+  color: #19456c;
+  font-size: 16px;
+}
+
+.sort-tray header span,
+.drop-zone header span {
+  color: #668097;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sort-items {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-height: 112px;
+  margin-top: 12px;
+}
+
+.sort-garment {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  border: 1px solid rgba(38,78,115,.13);
+  border-radius: 15px;
+  padding: 8px;
+  color: #284d6c;
+  background: rgba(255,255,255,.82);
+  box-shadow: 0 7px 17px rgba(32,76,115,.08);
+  text-align: left;
+  touch-action: none;
+  cursor: grab;
+  transition: transform .16s ease, box-shadow .16s ease;
+}
+
+.sort-garment img {
+  display: block;
+  width: 100%;
+  height: 64px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.sort-garment span {
+  display: block;
+  margin-top: 7px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sort-garment.selected {
+  border-color: #2374bd;
+  box-shadow: 0 0 0 3px rgba(35,116,189,.16);
+}
+
+.sort-garment.dragging {
+  z-index: 12;
+  cursor: grabbing;
+  box-shadow: 0 18px 36px rgba(23,65,101,.22);
+}
+
+.sort-empty {
+  grid-column: 1 / -1;
+  align-self: center;
+  margin: 0;
+  color: #71869a;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.drop-zone-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 11px;
+}
+
+.drop-zone {
+  min-width: 0;
+  min-height: 190px;
+  transition: transform .16s ease, box-shadow .16s ease;
+}
+
+.drop-zone.drag-over {
+  transform: translateY(-2px);
+  box-shadow: 0 0 0 4px rgba(25,108,181,.16), 0 18px 38px rgba(30,81,123,.16);
+}
+
+.drop-items {
+  display: grid;
+  gap: 8px;
+  min-height: 128px;
+  margin-top: 10px;
+}
+
+.drop-items .sort-garment img {
+  height: 52px;
+}
+
+.drop-items > p {
+  align-self: center;
+  margin: 0;
+  color: #7890a4;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.sort-tap-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.sort-tap-actions button {
+  min-height: 46px;
+  border: 1px solid rgba(35,84,128,.16);
+  border-radius: 13px;
+  color: #215b8f;
+  background: rgba(255,255,255,.78);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sorting-confirm {
+  margin-top: 12px;
+}
+
+.collection-shell {
+  min-height: 100svh;
+  padding-bottom: 90px;
+  background: #f2f8fd;
+}
+
+.collection-header {
+  position: sticky;
+  z-index: 5;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: min(100%, 480px);
+  margin: 0 auto;
+  padding: max(22px, env(safe-area-inset-top)) 18px 15px;
+  border-bottom: 1px solid rgba(41,84,125,.1);
+  background: rgba(244,250,255,.9);
+  backdrop-filter: blur(20px);
+}
+
+.collection-header p,
+.collection-header h1 {
+  margin: 0;
+}
+
+.collection-header p {
+  color: #74899d;
+  font-size: 12px;
+}
+
+.collection-header h1 {
+  margin-top: 3px;
+  color: #173f64;
+  font-size: 27px;
+  letter-spacing: -.035em;
+}
+
+.collection-header > button {
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 12px;
+  color: #1768b0;
+  background: #e0f0fd;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.collection-content {
+  width: min(100%, 480px);
+  margin: 0 auto;
+  padding: 22px 16px 30px;
+}
+
+.collection-lead {
+  margin: 0 2px 14px;
+  color: #667d91;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.empty-collection {
+  margin-top: 12px;
+  border-radius: 22px;
+  padding: 30px 20px;
+  text-align: center;
+}
+
+.empty-collection > div {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto;
+  border-radius: 50%;
+  color: white;
+  background: #24815f;
+  font-size: 22px;
+}
+
+.empty-collection h2 {
+  margin: 15px 0 7px;
+  color: #234a6e;
+}
+
+.empty-collection p {
+  margin: 0 0 18px;
+  color: #6a7f92;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.laundry-list,
+.wardrobe-list {
+  display: grid;
+  gap: 10px;
+}
+
+.laundry-item,
+.wardrobe-item {
+  border: 1px solid rgba(42,78,116,.11);
+  border-radius: 18px;
+  background: white;
+  box-shadow: 0 8px 22px rgba(38,83,122,.06);
+}
+
+.laundry-item {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 11px;
+  cursor: pointer;
+}
+
+.laundry-item img,
+.wardrobe-item > img {
+  width: 64px;
+  height: 64px;
+  border-radius: 13px;
+  object-fit: cover;
+}
+
+.laundry-item strong,
+.laundry-item small {
+  display: block;
+}
+
+.laundry-item strong {
+  color: #244a6c;
+  font-size: 14px;
+}
+
+.laundry-item small {
+  margin-top: 5px;
+  color: #778a9c;
+  font-size: 11px;
+}
+
+.laundry-item input {
+  width: 22px;
+  min-height: 22px;
+  accent-color: #1768c8;
+}
+
+.collection-action {
+  margin-top: 16px;
+}
+
+.collection-message {
+  margin: 12px 2px 0;
+  color: #277255;
+  font-size: 13px;
+}
+
+.wardrobe-item {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 13px;
+  padding: 12px;
+}
+
+.wardrobe-item > img {
+  width: 76px;
+  height: 92px;
+}
+
+.wardrobe-item-copy > span {
+  color: #2d77b4;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.wardrobe-item-copy h2 {
+  margin: 3px 0 4px;
+  color: #234765;
+  font-size: 16px;
+}
+
+.wardrobe-item-copy p {
+  margin: 0;
+  color: #778a9b;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.wardrobe-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.wardrobe-actions button {
+  min-height: 34px;
+  border: 1px solid rgba(37,85,127,.14);
+  border-radius: 10px;
+  padding: 0 10px;
+  color: #286493;
+  background: #edf6fd;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 @media (min-width: 700px) {
@@ -1019,11 +1408,17 @@ select:focus {
     box-shadow: 0 0 70px rgba(43,79,114,.18);
   }
 
-  .today-footer {
+  .bottom-nav {
     right: calc((100vw - 480px) / 2);
     left: calc((100vw - 480px) / 2);
     padding-right: 18px;
     padding-left: 18px;
+  }
+
+  .collection-shell {
+    width: 480px;
+    margin: 0 auto;
+    box-shadow: 0 0 70px rgba(43,79,114,.18);
   }
 }
 
@@ -1038,6 +1433,18 @@ select:focus {
 
   .start-content h1 {
     font-size: 41px;
+  }
+
+  .drop-zone-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .drop-zone {
+    min-height: 150px;
+  }
+
+  .drop-items {
+    min-height: 90px;
   }
 }
 

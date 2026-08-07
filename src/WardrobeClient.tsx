@@ -3,14 +3,26 @@
 import {
   ChangeEvent,
   FormEvent,
+  PointerEvent as ReactPointerEvent,
   useEffect,
+  useMemo,
+  useRef,
   useState,
 } from "react";
 
-export type View = "home" | "start" | "add" | "ready" | "today";
+export type View =
+  | "home"
+  | "start"
+  | "add"
+  | "ready"
+  | "today"
+  | "wear-status"
+  | "wardrobe"
+  | "laundry";
 type Category = "top" | "bottom" | "shoes" | "socks" | "outer";
 type Scene = "work" | "gym" | "leisure";
-type GarmentState = "ready" | "laundry" | "washing" | "repair" | "unavailable";
+type GarmentState = "ready" | "laundry" | "paused";
+type WearPlacement = "hanger" | "laundry";
 
 type Profile = {
   city: string;
@@ -50,6 +62,9 @@ type WearRecord = {
   garmentIds: string[];
   city: string;
   temperature: number;
+  needsSorting?: boolean;
+  sortedAt?: string;
+  placements?: Record<string, WearPlacement>;
 };
 
 type WardrobeData = {
@@ -72,6 +87,104 @@ const EMPTY_DATA: WardrobeData = {
   garments: [],
   wearHistory: [],
 };
+
+function normalizeWardrobeData(value: unknown): WardrobeData {
+  if (!value || typeof value !== "object") return EMPTY_DATA;
+  const candidate = value as Partial<WardrobeData>;
+  const garments = Array.isArray(candidate.garments)
+    ? candidate.garments.map((item) => {
+        const legacyState = String(item.state);
+        const state: GarmentState =
+          legacyState === "ready" || legacyState === "laundry" || legacyState === "paused"
+            ? legacyState
+            : legacyState === "washing"
+              ? "laundry"
+              : "paused";
+        return { ...item, state };
+      })
+    : [];
+  const wearHistory = Array.isArray(candidate.wearHistory)
+    ? candidate.wearHistory.map((record) => ({
+        ...record,
+        needsSorting: record.needsSorting === true,
+      }))
+    : [];
+  return {
+    profile: candidate.profile ?? null,
+    garments,
+    wearHistory,
+  };
+}
+
+function findPendingWear(data: WardrobeData) {
+  return [...data.wearHistory].reverse().find((record) => record.needsSorting === true);
+}
+
+function garmentLocation(item: Garment): GarmentState {
+  if (item.state === "paused") return "paused";
+  if (item.category === "socks" && (item.cleanCount ?? 0) <= 0) return "laundry";
+  return item.state;
+}
+
+function dirtySockCount(item: Garment) {
+  if (item.category !== "socks") return 0;
+  return Math.max(0, (item.totalCount ?? 0) - (item.cleanCount ?? 0));
+}
+
+function applyWearPlacements(
+  data: WardrobeData,
+  recordId: string,
+  placements: Record<string, WearPlacement>,
+): WardrobeData {
+  const record = data.wearHistory.find((item) => item.id === recordId);
+  if (!record) return data;
+  const wornIds = new Set(record.garmentIds);
+  const garments = data.garments.map((item) => {
+    if (!wornIds.has(item.id)) return item;
+    const placement = placements[item.id];
+    if (!placement) return item;
+    if (placement === "hanger") {
+      return { ...item, state: "ready" as GarmentState };
+    }
+    if (item.category === "socks") {
+      const cleanCount = Math.max(0, (item.cleanCount ?? 0) - 1);
+      return {
+        ...item,
+        cleanCount,
+        state: cleanCount > 0 ? "ready" as GarmentState : "laundry" as GarmentState,
+      };
+    }
+    return { ...item, state: "laundry" as GarmentState };
+  });
+  const sortedAt = new Date().toISOString();
+  return {
+    ...data,
+    garments,
+    wearHistory: data.wearHistory.map((item) =>
+      item.id === recordId
+        ? { ...item, needsSorting: false, sortedAt, placements }
+        : item,
+    ),
+  };
+}
+
+function restoreCleanGarments(data: WardrobeData, garmentIds: string[]): WardrobeData {
+  const selected = new Set(garmentIds);
+  return {
+    ...data,
+    garments: data.garments.map((item) => {
+      if (!selected.has(item.id)) return item;
+      if (item.category === "socks") {
+        return {
+          ...item,
+          cleanCount: Math.max(1, item.totalCount ?? item.cleanCount ?? 1),
+          state: "ready",
+        };
+      }
+      return { ...item, state: "ready" };
+    }),
+  };
+}
 
 const categoryLabels: Record<Category, string> = {
   top: "上衣",
@@ -265,7 +378,7 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
     const timer = window.setTimeout(() => {
       try {
         const saved = window.localStorage.getItem(STORAGE_KEY);
-        if (saved) setData(JSON.parse(saved) as WardrobeData);
+        if (saved) setData(normalizeWardrobeData(JSON.parse(saved)));
       } catch {
         setNotice("衣橱没有打开成功，请刷新后再试。 ");
       } finally {
@@ -280,8 +393,15 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [data, hydrated]);
 
-  const actualView: View =
+  const pendingWear = findPendingWear(data);
+  const requestedView: View =
     initialView === "home" ? (data.profile ? "today" : "start") : initialView;
+  const actualView: View =
+    pendingWear && !worn && requestedView === "today"
+      ? "wear-status"
+      : requestedView === "wear-status" && !pendingWear
+        ? "today"
+        : requestedView;
 
   useEffect(() => {
     if (!hydrated || actualView !== "today" || !data.profile) return;
@@ -340,6 +460,24 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
     return <ReadyScreen garments={data.garments} />;
   }
 
+  if (actualView === "wear-status" && pendingWear) {
+    return (
+      <WearStatusScreen
+        data={data}
+        record={pendingWear}
+        setData={setData}
+      />
+    );
+  }
+
+  if (actualView === "wardrobe") {
+    return <WardrobeScreen data={data} setData={setData} />;
+  }
+
+  if (actualView === "laundry") {
+    return <LaundryScreen data={data} setData={setData} />;
+  }
+
   const currentWeather = weather;
   const outfit = currentWeather
     ? buildOutfit(data.garments, scene, currentWeather, overrides)
@@ -377,16 +515,11 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
       garmentIds: outfit.items.map((item) => item.id),
       city: data.profile.city,
       temperature: currentWeather.temperature,
+      needsSorting: true,
     };
-    const sockId = outfit.items.find((item) => item.category === "socks")?.id;
     setData((previous) => ({
       ...previous,
       wearHistory: [...previous.wearHistory, record],
-      garments: previous.garments.map((item) =>
-        item.id === sockId
-          ? { ...item, cleanCount: Math.max(0, (item.cleanCount ?? 0) - 1) }
-          : item,
-      ),
     }));
     setWorn(true);
     setNotice("");
@@ -641,7 +774,7 @@ function AddScreen({
             <p className="field-label">现在能穿吗</p>
             <div className="state-grid">
               {([
-                ["ready", "正常可穿"], ["laundry", "待洗"], ["washing", "正在洗"], ["repair", "维修中"], ["unavailable", "暂不可用"],
+                ["ready", "可以穿"], ["laundry", "要洗了"], ["paused", "先收起来"],
               ] as [GarmentState, string][]).map(([value, label]) => (
                 <button className={state === value ? "selected" : ""} type="button" key={value} onClick={() => setState(value)}>{label}</button>
               ))}
@@ -710,6 +843,29 @@ function ReadyScreen({ garments }: { garments: Garment[] }) {
         <button className="secondary-button full" type="button" onClick={() => navigate("/wardrobe/add")}>再添几件衣服</button>
       </section>
     </main>
+  );
+}
+
+function BottomNav({ current }: { current: "today" | "laundry" | "wardrobe" | "add" }) {
+  const items: { key: typeof current; label: string; path: string }[] = [
+    { key: "today", label: "今天", path: "/today" },
+    { key: "laundry", label: "脏衣篓", path: "/wardrobe/laundry" },
+    { key: "wardrobe", label: "衣橱", path: "/wardrobe" },
+    { key: "add", label: "添加", path: "/wardrobe/add" },
+  ];
+  return (
+    <nav className="bottom-nav" aria-label="主要页面">
+      {items.map((item) => (
+        <button
+          className={current === item.key ? "selected" : ""}
+          type="button"
+          key={item.key}
+          onClick={() => navigate(item.path)}
+        >
+          {item.label}
+        </button>
+      ))}
+    </nav>
   );
 }
 
@@ -789,8 +945,8 @@ function TodayScreen({
           <section className="success-panel glass-panel">
             <div className="ready-check">✓</div>
             <h1>今天就穿这套</h1>
-            <p>好，今天就这么穿。袜子已经算作穿过，其他衣服等你回来后再确认。</p>
-            <button className="secondary-button full" type="button" onClick={() => navigate("/wardrobe/add")}>再添一件衣服</button>
+            <p>穿完以后，把每件衣服放回衣架或脏衣篓。你也可以先关掉，下次打开时再整理。</p>
+            <button className="secondary-button full" type="button" onClick={() => navigate("/wear/status")}>现在整理衣服</button>
           </section>
         ) : outfit?.missing.length ? (
           <section className="missing-panel glass-panel">
@@ -826,11 +982,414 @@ function TodayScreen({
           </>
         ) : null}
 
-        <footer className="today-footer">
-          <button type="button" onClick={() => navigate("/today")}>今天</button>
-          <button type="button" onClick={() => navigate("/wardrobe/add")}>＋ 添加衣物</button>
-        </footer>
+        <BottomNav current="today" />
       </section>
+    </main>
+  );
+}
+
+function WearStatusScreen({
+  data,
+  record,
+  setData,
+}: {
+  data: WardrobeData;
+  record: WearRecord;
+  setData: React.Dispatch<React.SetStateAction<WardrobeData>>;
+}) {
+  type SortLocation = "tray" | WearPlacement;
+  const wornItems = useMemo(
+    () =>
+      record.garmentIds
+        .map((id) => data.garments.find((item) => item.id === id))
+        .filter((item): item is Garment => Boolean(item)),
+    [data.garments, record.garmentIds],
+  );
+  const [placements, setPlacements] = useState<Record<string, SortLocation>>(() =>
+    Object.fromEntries(wornItems.map((item) => [item.id, "tray"])),
+  );
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [dropTarget, setDropTarget] = useState<WearPlacement | null>(null);
+  const pointerStart = useRef<{ id: string; x: number; y: number; moved: boolean } | null>(null);
+  const suppressClick = useRef(false);
+
+  const remaining = wornItems.filter((item) => placements[item.id] === "tray").length;
+
+  function itemsAt(location: SortLocation) {
+    return wornItems.filter((item) => placements[item.id] === location);
+  }
+
+  function placeItem(id: string, location: WearPlacement) {
+    setPlacements((previous) => ({ ...previous, [id]: location }));
+    setSelectedId(null);
+    setDraggingId(null);
+    setDragOffset({ x: 0, y: 0 });
+    setDropTarget(null);
+  }
+
+  function detectDropTarget(clientX: number, clientY: number): WearPlacement | null {
+    const zones = document.querySelectorAll<HTMLElement>("[data-drop-zone]");
+    for (const zone of zones) {
+      const rect = zone.getBoundingClientRect();
+      if (
+        clientX >= rect.left
+        && clientX <= rect.right
+        && clientY >= rect.top
+        && clientY <= rect.bottom
+      ) {
+        return zone.dataset.dropZone as WearPlacement;
+      }
+    }
+    return null;
+  }
+
+  function startTouchDrag(event: ReactPointerEvent<HTMLButtonElement>, id: string) {
+    if (event.pointerType === "mouse") return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    pointerStart.current = { id, x: event.clientX, y: event.clientY, moved: false };
+  }
+
+  function moveTouchDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    const start = pointerStart.current;
+    if (!start) return;
+    const x = event.clientX - start.x;
+    const y = event.clientY - start.y;
+    if (!start.moved && Math.abs(x) + Math.abs(y) < 8) return;
+    start.moved = true;
+    setDraggingId(start.id);
+    setDragOffset({ x, y });
+    setDropTarget(detectDropTarget(event.clientX, event.clientY));
+  }
+
+  function endTouchDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    const start = pointerStart.current;
+    pointerStart.current = null;
+    if (!start) return;
+    const target = start.moved ? detectDropTarget(event.clientX, event.clientY) : null;
+    if (target) {
+      suppressClick.current = true;
+      placeItem(start.id, target);
+      return;
+    }
+    setDraggingId(null);
+    setDragOffset({ x: 0, y: 0 });
+    setDropTarget(null);
+    if (!start.moved) setSelectedId((current) => current === start.id ? null : start.id);
+  }
+
+  function handleNativeDrop(event: React.DragEvent<HTMLElement>, location: WearPlacement) {
+    event.preventDefault();
+    const id = event.dataTransfer.getData("text/plain");
+    if (id && placements[id]) placeItem(id, location);
+  }
+
+  function confirmSorting() {
+    if (remaining > 0) return;
+    const finalized = Object.fromEntries(
+      Object.entries(placements).map(([id, location]) => [id, location as WearPlacement]),
+    );
+    setData((previous) => applyWearPlacements(previous, record.id, finalized));
+    navigate("/today");
+  }
+
+  function renderGarmentButton(item: Garment) {
+    const isDragging = draggingId === item.id;
+    return (
+      <button
+        key={item.id}
+        className={`sort-garment ${selectedId === item.id ? "selected" : ""} ${isDragging ? "dragging" : ""}`}
+        type="button"
+        draggable
+        style={isDragging ? { transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)` } : undefined}
+        onClick={() => {
+          if (suppressClick.current) {
+            suppressClick.current = false;
+            return;
+          }
+          setSelectedId((current) => current === item.id ? null : item.id);
+        }}
+        onDragStart={(event) => {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", item.id);
+          setDraggingId(item.id);
+        }}
+        onDragEnd={() => {
+          setDraggingId(null);
+          setDropTarget(null);
+        }}
+        onPointerDown={(event) => startTouchDrag(event, item.id)}
+        onPointerMove={moveTouchDrag}
+        onPointerUp={endTouchDrag}
+        aria-label={`${item.color}${item.subtype}，拖动或点击选择`}
+      >
+        <img src={item.photo} alt="" />
+        <span>{item.color}{item.subtype}</span>
+      </button>
+    );
+  }
+
+  return (
+    <main className="weather-shell sorting-shell">
+      <section className="sorting-content">
+        <p className="eyebrow">穿后整理</p>
+        <h1>这套穿完了，整理一下</h1>
+        <p className="sorting-intro">拖到衣架或脏衣篓。点一下衣服，也可以直接选择。</p>
+
+        <section className="sort-tray glass-panel">
+          <header>
+            <h2>刚刚穿过</h2>
+            <span>{remaining > 0 ? `${remaining} 件待整理` : "都整理好了"}</span>
+          </header>
+          <div className="sort-items">
+            {itemsAt("tray").map(renderGarmentButton)}
+            {itemsAt("tray").length === 0 && <p className="sort-empty">下面两边确认无误后，就可以完成整理。</p>}
+          </div>
+        </section>
+
+        <div className="drop-zone-grid">
+          <section
+            className={`drop-zone glass-panel ${dropTarget === "hanger" ? "drag-over" : ""}`}
+            data-drop-zone="hanger"
+            onDragOver={(event) => {
+              event.preventDefault();
+              setDropTarget("hanger");
+            }}
+            onDragLeave={() => setDropTarget(null)}
+            onDrop={(event) => handleNativeDrop(event, "hanger")}
+          >
+            <header><h2>衣架</h2><span>还能穿</span></header>
+            <div className="drop-items">
+              {itemsAt("hanger").map(renderGarmentButton)}
+              {itemsAt("hanger").length === 0 && <p>明天还能推荐</p>}
+            </div>
+          </section>
+
+          <section
+            className={`drop-zone glass-panel ${dropTarget === "laundry" ? "drag-over" : ""}`}
+            data-drop-zone="laundry"
+            onDragOver={(event) => {
+              event.preventDefault();
+              setDropTarget("laundry");
+            }}
+            onDragLeave={() => setDropTarget(null)}
+            onDrop={(event) => handleNativeDrop(event, "laundry")}
+          >
+            <header><h2>脏衣篓</h2><span>要洗了</span></header>
+            <div className="drop-items">
+              {itemsAt("laundry").map(renderGarmentButton)}
+              {itemsAt("laundry").length === 0 && <p>洗好前不再推荐</p>}
+            </div>
+          </section>
+        </div>
+
+        {selectedId && (
+          <div className="sort-tap-actions" aria-label="选择衣服去向">
+            <button type="button" onClick={() => placeItem(selectedId, "hanger")}>挂回衣架</button>
+            <button type="button" onClick={() => placeItem(selectedId, "laundry")}>放进脏衣篓</button>
+          </div>
+        )}
+
+        <button
+          className="primary-button full sorting-confirm"
+          type="button"
+          disabled={remaining > 0}
+          onClick={confirmSorting}
+        >
+          {remaining > 0 ? `还有 ${remaining} 件没整理` : "确认整理"}
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function LaundryScreen({
+  data,
+  setData,
+}: {
+  data: WardrobeData;
+  setData: React.Dispatch<React.SetStateAction<WardrobeData>>;
+}) {
+  const laundryItems = data.garments.filter(
+    (item) => garmentLocation(item) === "laundry" || dirtySockCount(item) > 0,
+  );
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [message, setMessage] = useState("");
+
+  function toggle(id: string) {
+    setSelectedIds((previous) =>
+      previous.includes(id) ? previous.filter((item) => item !== id) : [...previous, id],
+    );
+  }
+
+  function restoreSelected() {
+    if (selectedIds.length === 0) return;
+    setData((previous) => restoreCleanGarments(previous, selectedIds));
+    setMessage(`${selectedIds.length} 件衣物已经回到衣架。`);
+    setSelectedIds([]);
+  }
+
+  return (
+    <main className="collection-shell">
+      <header className="collection-header">
+        <div>
+          <p>洗好再回来</p>
+          <h1>脏衣篓</h1>
+        </div>
+        <button type="button" onClick={() => navigate("/today")}>看今天</button>
+      </header>
+
+      <section className="collection-content">
+        {laundryItems.length === 0 ? (
+          <div className="empty-collection glass-panel">
+            <div>✓</div>
+            <h2>脏衣篓是空的</h2>
+            <p>这里没有等待清洗的衣服。</p>
+          </div>
+        ) : (
+          <>
+            <p className="collection-lead">选中已经洗净并晾干的衣服，再把它们放回衣架。</p>
+            <div className="laundry-list">
+              {laundryItems.map((item) => (
+                <label className="laundry-item" key={item.id}>
+                  <img src={item.photo} alt="" />
+                  <span>
+                    <strong>{item.color}{item.subtype}</strong>
+                    <small>
+                      {item.category === "socks"
+                        ? `${Math.max(1, dirtySockCount(item))} 双待洗`
+                        : "洗好前不会参与推荐"}
+                    </small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(item.id)}
+                    onChange={() => toggle(item.id)}
+                    aria-label={`选择${item.color}${item.subtype}`}
+                  />
+                </label>
+              ))}
+            </div>
+            {message && <p className="collection-message" role="status">{message}</p>}
+            <button
+              className="primary-button full collection-action"
+              type="button"
+              disabled={selectedIds.length === 0}
+              onClick={restoreSelected}
+            >
+              洗净并晾干，放回衣架
+            </button>
+          </>
+        )}
+      </section>
+      <BottomNav current="laundry" />
+    </main>
+  );
+}
+
+function WardrobeScreen({
+  data,
+  setData,
+}: {
+  data: WardrobeData;
+  setData: React.Dispatch<React.SetStateAction<WardrobeData>>;
+}) {
+  function moveToLaundry(item: Garment) {
+    setData((previous) => ({
+      ...previous,
+      garments: previous.garments.map((candidate) => {
+        if (candidate.id !== item.id) return candidate;
+        if (candidate.category === "socks") {
+          return { ...candidate, cleanCount: 0, state: "laundry" };
+        }
+        return { ...candidate, state: "laundry" };
+      }),
+    }));
+  }
+
+  function pause(item: Garment) {
+    setData((previous) => ({
+      ...previous,
+      garments: previous.garments.map((candidate) =>
+        candidate.id === item.id ? { ...candidate, state: "paused" } : candidate,
+      ),
+    }));
+  }
+
+  function activate(item: Garment) {
+    setData((previous) =>
+      item.category === "socks"
+        ? restoreCleanGarments(previous, [item.id])
+        : {
+            ...previous,
+            garments: previous.garments.map((candidate) =>
+              candidate.id === item.id ? { ...candidate, state: "ready" } : candidate,
+            ),
+          },
+    );
+  }
+
+  function statusCopy(item: Garment) {
+    const location = garmentLocation(item);
+    if (location === "paused") return "先收起来 · 不参与推荐";
+    if (item.category === "socks" && dirtySockCount(item) > 0 && (item.cleanCount ?? 0) > 0) {
+      return `衣架还有 ${item.cleanCount} 双 · ${dirtySockCount(item)} 双待洗`;
+    }
+    if (location === "laundry") return "脏衣篓 · 洗好前不推荐";
+    return "衣架 · 可以推荐";
+  }
+
+  return (
+    <main className="collection-shell">
+      <header className="collection-header">
+        <div>
+          <p>{data.garments.length} 件 / 组</p>
+          <h1>我的衣橱</h1>
+        </div>
+        <button type="button" onClick={() => navigate("/wardrobe/add")}>添加衣物</button>
+      </header>
+
+      <section className="collection-content">
+        {data.garments.length === 0 ? (
+          <div className="empty-collection glass-panel">
+            <h2>衣橱还是空的</h2>
+            <p>先添加上衣、下装、鞋和袜子，就能开始搭配。</p>
+            <button className="primary-button full" type="button" onClick={() => navigate("/wardrobe/add")}>添加第一件衣服</button>
+          </div>
+        ) : (
+          <div className="wardrobe-list">
+            {data.garments.map((item) => {
+              const location = garmentLocation(item);
+              return (
+                <article className="wardrobe-item" key={item.id}>
+                  <img src={item.photo} alt={`${item.color}${item.subtype}`} />
+                  <div className="wardrobe-item-copy">
+                    <span>{categoryLabels[item.category]}</span>
+                    <h2>{item.color}{item.subtype}</h2>
+                    <p>{statusCopy(item)}</p>
+                    <div className="wardrobe-actions">
+                      {location === "ready" && (
+                        <>
+                          <button type="button" onClick={() => moveToLaundry(item)}>要洗了</button>
+                          <button type="button" onClick={() => pause(item)}>先收起来</button>
+                        </>
+                      )}
+                      {location === "laundry" && (
+                        <button type="button" onClick={() => activate(item)}>洗好放回衣架</button>
+                      )}
+                      {location === "paused" && (
+                        <button type="button" onClick={() => activate(item)}>重新启用</button>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+      <BottomNav current="wardrobe" />
     </main>
   );
 }

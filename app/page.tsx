@@ -1,7 +1,7 @@
+"use client";
+
 import { useEffect, useState } from "react";
-import { createRoot } from "react-dom/client";
-import WardrobeClient, { type View } from "./WardrobeClient";
-import "./styles.css";
+import WardrobeClient, { type View } from "../src/WardrobeClient";
 
 const routes: Record<string, View> = {
   "/": "home",
@@ -15,20 +15,20 @@ const routes: Record<string, View> = {
 };
 
 function currentView(): View {
+  if (typeof window === "undefined") return "home";
   const path = window.location.hash.replace(/^#/, "") || "/";
   return routes[path] ?? "home";
 }
 
-function WardrobeApp() {
-  const [view, setView] = useState<View>(currentView);
+export default function Home() {
+  const [view, setView] = useState<View>("home");
 
   useEffect(() => {
     const handleNavigation = () => setView(currentView());
+    handleNavigation();
     window.addEventListener("hashchange", handleNavigation);
     return () => window.removeEventListener("hashchange", handleNavigation);
   }, []);
 
   return <WardrobeClient initialView={view} />;
 }
-
-createRoot(document.getElementById("root")!).render(<WardrobeApp />);
