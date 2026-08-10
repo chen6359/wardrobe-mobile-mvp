@@ -78,3 +78,32 @@ test("keeps unavailable clothing outside the recommendation pool", async () => {
   assert.match(source, /restoreCleanGarments/);
   assert.match(source, /needsSorting: false/);
 });
+
+test("uses explicit real city selection and optional device location", async () => {
+  const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
+  assert.match(source, /geocoding-api\.open-meteo\.com\/v1\/search/);
+  assert.match(source, /count: "6"/);
+  assert.match(source, /trimmed\.endsWith\("市"\)/);
+  assert.match(source, /navigator\.geolocation\.getCurrentPosition/);
+  assert.match(source, /请从搜索结果里选中一个城市/);
+});
+
+test("reads one or two garment labels and keeps the result correctable", async () => {
+  const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
+  assert.match(source, /import\("tesseract\.js"\)/);
+  assert.match(source, /careLabelPhoto/);
+  assert.match(source, /hangtagPhoto/);
+  assert.match(source, /上传一张或两张都可以/);
+  assert.match(source, /不准确的地方可以直接改/);
+  assert.match(source, /item\.careNotes/);
+});
+
+test("keeps recent scenes dynamic and filters the wardrobe by category", async () => {
+  const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
+  assert.match(source, /recentScenes: \[next, \.\.\.previous\.recentScenes/);
+  assert.match(source, /全部场景/);
+  assert.match(source, /已按\$\{sceneLabels\[next\]\}更新今天的搭配/);
+  assert.match(source, /visibleItems = data\.garments\.filter/);
+  assert.match(source, /data-garment-category/);
+  assert.match(source, /保存修改/);
+});

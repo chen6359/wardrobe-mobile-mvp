@@ -20,7 +20,7 @@ export type View =
   | "wardrobe"
   | "laundry";
 type Category = "top" | "bottom" | "shoes" | "socks" | "outer";
-type Scene = "work" | "gym" | "leisure";
+type Scene = "work" | "meeting" | "gym" | "casual" | "friends" | "date" | "travel";
 type GarmentState = "ready" | "laundry" | "paused";
 type WearPlacement = "hanger" | "laundry";
 
@@ -30,6 +30,7 @@ type Profile = {
   latitude: number;
   longitude: number;
   timezone: string;
+  preferredScenes: Scene[];
 };
 
 type Garment = {
@@ -41,6 +42,11 @@ type Garment = {
   photo: string;
   material: string;
   thickness: string;
+  size: string;
+  careNotes: string;
+  labelText: string;
+  careLabelPhoto: string;
+  hangtagPhoto: string;
   scenes: Scene[];
   totalCount?: number;
   cleanCount?: number;
@@ -71,6 +77,7 @@ type WardrobeData = {
   profile: Profile | null;
   garments: Garment[];
   wearHistory: WearRecord[];
+  recentScenes: Scene[];
 };
 
 type Outfit = {
@@ -86,12 +93,20 @@ const EMPTY_DATA: WardrobeData = {
   profile: null,
   garments: [],
   wearHistory: [],
+  recentScenes: ["work", "meeting", "gym"],
 };
+
+const allScenes: Scene[] = ["work", "meeting", "gym", "casual", "friends", "date", "travel"];
+
+function normalizeScene(value: unknown): Scene | null {
+  if (value === "leisure") return "friends";
+  return allScenes.includes(value as Scene) ? value as Scene : null;
+}
 
 function normalizeWardrobeData(value: unknown): WardrobeData {
   if (!value || typeof value !== "object") return EMPTY_DATA;
   const candidate = value as Partial<WardrobeData>;
-  const garments = Array.isArray(candidate.garments)
+  const garments: Garment[] = Array.isArray(candidate.garments)
     ? candidate.garments.map((item) => {
         const legacyState = String(item.state);
         const state: GarmentState =
@@ -100,19 +115,50 @@ function normalizeWardrobeData(value: unknown): WardrobeData {
             : legacyState === "washing"
               ? "laundry"
               : "paused";
-        return { ...item, state };
+        const scenes = Array.isArray(item.scenes)
+          ? item.scenes.map(normalizeScene).filter((scene): scene is Scene => Boolean(scene))
+          : [];
+        return {
+          ...item,
+          state,
+          scenes,
+          size: item.size ?? "",
+          careNotes: item.careNotes ?? "",
+          labelText: item.labelText ?? "",
+          careLabelPhoto: item.careLabelPhoto ?? "",
+          hangtagPhoto: item.hangtagPhoto ?? "",
+        };
       })
     : [];
-  const wearHistory = Array.isArray(candidate.wearHistory)
-    ? candidate.wearHistory.map((record) => ({
-        ...record,
-        needsSorting: record.needsSorting === true,
-      }))
+  const wearHistory: WearRecord[] = Array.isArray(candidate.wearHistory)
+    ? candidate.wearHistory.flatMap((record) => {
+        const scene = normalizeScene(record.scene);
+        return scene
+          ? [{ ...record, scene, needsSorting: record.needsSorting === true }]
+          : [];
+      })
+    : [];
+  const preferredScenes = Array.isArray(candidate.profile?.preferredScenes)
+    ? candidate.profile.preferredScenes
+        .map(normalizeScene)
+        .filter((scene): scene is Scene => Boolean(scene))
+    : ["work", "meeting", "gym", "casual", "friends"] as Scene[];
+  const profile = candidate.profile
+    ? { ...candidate.profile, preferredScenes: preferredScenes.length > 0 ? preferredScenes : ["work"] as Scene[] }
+    : null;
+  const recentScenes = Array.isArray(candidate.recentScenes)
+    ? candidate.recentScenes
+        .map(normalizeScene)
+        .filter((scene): scene is Scene => Boolean(scene))
+        .slice(0, 3)
     : [];
   return {
-    profile: candidate.profile ?? null,
+    profile,
     garments,
     wearHistory,
+    recentScenes: recentScenes.length > 0
+      ? recentScenes
+      : (profile?.preferredScenes.slice(0, 3) ?? EMPTY_DATA.recentScenes),
   };
 }
 
@@ -195,9 +241,23 @@ const categoryLabels: Record<Category, string> = {
 };
 
 const sceneLabels: Record<Scene, string> = {
-  work: "工作",
+  work: "普通办公",
+  meeting: "公司会议",
   gym: "健身",
-  leisure: "朋友聚会 / 日常休闲",
+  casual: "日常休闲",
+  friends: "朋友聚会",
+  date: "约会",
+  travel: "旅行出行",
+};
+
+const sceneDescriptions: Record<Scene, string> = {
+  work: "整洁、舒服，适合日常坐班",
+  meeting: "比日常办公更利落正式",
+  gym: "方便活动，优先透气和支撑",
+  casual: "放松但不随便",
+  friends: "有一点亮点，也要自然",
+  date: "更重视整体感和细节",
+  travel: "耐走、好活动，也方便增减",
 };
 
 const subtypeOptions: Record<Category, string[]> = {
@@ -208,7 +268,7 @@ const subtypeOptions: Record<Category, string[]> = {
   outer: ["夹克", "风衣", "西装外套", "羽绒服", "大衣"],
 };
 
-const knownCities: Record<string, Omit<Profile, "city">> = {
+const knownCities: Record<string, Omit<Profile, "city" | "preferredScenes">> = {
   首尔: { country: "韩国", latitude: 37.5665, longitude: 126.978, timezone: "Asia/Seoul" },
   北京: { country: "中国", latitude: 39.9042, longitude: 116.4074, timezone: "Asia/Shanghai" },
   上海: { country: "中国", latitude: 31.2304, longitude: 121.4737, timezone: "Asia/Shanghai" },
@@ -257,12 +317,18 @@ function scoreItem(item: Garment, scene: Scene, temperature: number) {
   let score = item.scenes.length === 0 ? 4 : item.scenes.includes(scene) ? 14 : 1;
 
   if (scene === "work" && ["短袖衬衫", "长袖衬衫", "Polo", "西裤", "休闲裤", "皮鞋"].includes(item.subtype)) score += 8;
+  if (scene === "meeting" && ["短袖衬衫", "长袖衬衫", "Polo", "西裤", "皮鞋", "西装外套"].includes(item.subtype)) score += 11;
   if (scene === "gym" && ["T恤", "运动裤", "短裤", "运动鞋", "运动袜"].includes(item.subtype)) score += 10;
-  if (scene === "leisure" && ["T恤", "Polo", "牛仔裤", "休闲裤", "休闲鞋", "运动鞋"].includes(item.subtype)) score += 7;
+  if (scene === "casual" && ["T恤", "Polo", "牛仔裤", "休闲裤", "休闲鞋", "运动鞋"].includes(item.subtype)) score += 7;
+  if (scene === "friends" && ["T恤", "Polo", "短袖衬衫", "牛仔裤", "休闲裤", "休闲鞋"].includes(item.subtype)) score += 8;
+  if (scene === "date" && ["Polo", "短袖衬衫", "长袖衬衫", "休闲裤", "西裤", "休闲鞋", "皮鞋"].includes(item.subtype)) score += 9;
+  if (scene === "travel" && ["T恤", "Polo", "运动裤", "休闲裤", "运动鞋", "休闲鞋"].includes(item.subtype)) score += 8;
 
   if (temperature >= 26 && item.thickness === "薄") score += 7;
   if (temperature >= 18 && temperature < 26 && item.thickness === "适中") score += 6;
   if (temperature < 18 && item.thickness === "厚") score += 7;
+  if (temperature >= 24 && ["棉", "亚麻"].includes(item.material)) score += 3;
+  if (temperature < 16 && item.material === "羊毛") score += 4;
   if (!item.thickness || item.thickness === "不知道") score += 2;
   return score;
 }
@@ -329,9 +395,17 @@ function buildOutfit(
   const sceneReason =
     scene === "work"
       ? "普通办公需要整洁利落，但不必穿得像正式商务宴会。"
+      : scene === "meeting"
+        ? "公司会议比日常办公更正式，今天优先选择线条利落、颜色稳妥的衣服。"
       : scene === "gym"
         ? "训练时先保证活动方便，再在现有衣物里尽量保持颜色协调。"
-        : "朋友聚会可以放松一些，但上衣、裤子和鞋仍然要有连贯感。";
+        : scene === "date"
+          ? "约会更看重整体感，衣服要显得认真，但不需要刻意用力。"
+          : scene === "travel"
+            ? "旅行出行先照顾走动和久坐，再保证照片里看起来整齐。"
+            : scene === "friends"
+              ? "朋友聚会可以放松一些，但上衣、裤子和鞋仍然要有连贯感。"
+              : "日常休闲可以舒服一些，但舒服不等于随便拼在一起。";
   const weatherReason = `体感约 ${Math.round(weather.apparentTemperature)}°，${top?.thickness && top.thickness !== "不知道" ? `这件${top.thickness}上衣` : "这套的层次"}更适合现在的温度${needOuter ? "，并补上了外套" : ""}。`;
   const matchReason = `${top?.color ?? "上衣"}与${bottom?.color ?? "下装"}保持主次，${socks?.color ?? "袜子"}负责连接裤装和鞋，不会在坐下时突然断开。`;
 
@@ -343,7 +417,7 @@ function buildOutfit(
   };
 }
 
-async function compressImage(file: File) {
+async function compressImage(file: File, maxEdge = 900, quality = 0.78) {
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
@@ -356,12 +430,66 @@ async function compressImage(file: File) {
     preview.onerror = reject;
     preview.src = dataUrl;
   });
-  const scale = Math.min(1, 900 / Math.max(image.width, image.height));
+  const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(image.width * scale));
   canvas.height = Math.max(1, Math.round(image.height * scale));
   canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/jpeg", 0.78);
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+function readLabelDetails(text: string) {
+  const normalized = text.replaceAll(/\s+/g, " ").trim();
+  const materialRules: [RegExp, string][] = [
+    [/亚麻|linen/i, "亚麻"],
+    [/羊毛|wool/i, "羊毛"],
+    [/聚酯|polyester/i, "聚酯纤维"],
+    [/牛仔|denim/i, "牛仔"],
+    [/皮革|leather/i, "皮革"],
+    [/棉|cotton/i, "棉"],
+  ];
+  const materials = materialRules.filter(([rule]) => rule.test(normalized)).map(([, value]) => value);
+  const sizeMatch = normalized.match(/(?:尺码|SIZE|Size|size|码数)\s*[:：]?\s*([2-6]?X?[SML]{1,3}|\d{2,3})\b/);
+  const careRules: [RegExp, string][] = [
+    [/手洗|hand wash/i, "建议手洗"],
+    [/机洗|machine wash/i, "可以机洗"],
+    [/不可漂白|do not bleach/i, "不可漂白"],
+    [/不可烘干|do not tumble dry/i, "不可烘干"],
+    [/悬挂晾干|hang dry/i, "悬挂晾干"],
+    [/平铺晾干|dry flat/i, "平铺晾干"],
+    [/阴干|dry in shade/i, "阴干"],
+    [/干洗|dry clean/i, "按标签要求干洗"],
+    [/低温熨|low iron/i, "低温熨烫"],
+  ];
+  const careNotes = careRules.filter(([rule]) => rule.test(normalized)).map(([, value]) => value);
+  return {
+    material: materials.length > 1 ? "混纺" : materials[0] ?? "",
+    size: sizeMatch?.[1]?.toUpperCase() ?? "",
+    careNotes: [...new Set(careNotes)].join("、"),
+  };
+}
+
+async function recognizeLabels(
+  images: string[],
+  onProgress: (progress: number) => void,
+) {
+  const { createWorker } = await import("tesseract.js");
+  const worker = await createWorker(["chi_sim", "eng"], undefined, {
+    logger(message) {
+      if (message.status === "recognizing text") onProgress(message.progress);
+    },
+  });
+  try {
+    const textParts: string[] = [];
+    for (let index = 0; index < images.length; index += 1) {
+      const result = await worker.recognize(images[index]);
+      textParts.push(result.data.text);
+      onProgress((index + 1) / images.length);
+    }
+    return textParts.join("\n");
+  } finally {
+    await worker.terminate();
+  }
 }
 
 export default function WardrobeClient({ initialView }: { initialView: View }) {
@@ -373,6 +501,7 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
   const [overrides, setOverrides] = useState<Partial<Record<Category, string>>>({});
   const [notice, setNotice] = useState("");
   const [worn, setWorn] = useState(false);
+  const sceneInitialized = useRef(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -390,8 +519,20 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
 
   useEffect(() => {
     if (!hydrated) return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch {
+      window.setTimeout(() => {
+        setNotice("这台设备留给衣橱的空间不够了。请先删掉几张不需要的标签照片，再继续添加。 ");
+      }, 0);
+    }
   }, [data, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated || sceneInitialized.current) return;
+    sceneInitialized.current = true;
+    setScene(data.recentScenes[0] ?? data.profile?.preferredScenes[0] ?? "work");
+  }, [data.profile, data.recentScenes, hydrated]);
 
   const pendingWear = findPendingWear(data);
   const requestedView: View =
@@ -531,8 +672,12 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
       scene={scene}
       setScene={(next) => {
         setScene(next);
+        setData((previous) => ({
+          ...previous,
+          recentScenes: [next, ...previous.recentScenes.filter((item) => item !== next)].slice(0, 3),
+        }));
         setOverrides({});
-        setNotice("");
+        setNotice(`已按${sceneLabels[next]}更新今天的搭配。`);
       }}
       weather={currentWeather}
       weatherStatus={weatherStatus}
@@ -557,44 +702,150 @@ function StartScreen({
   notice: string;
   setNotice: (notice: string) => void;
 }) {
-  const [city, setCity] = useState(data.profile?.city ?? "首尔");
-  const [saving, setSaving] = useState(false);
+  type CityOption = Omit<Profile, "preferredScenes"> & { id: string; detail: string };
+  const [city, setCity] = useState(data.profile?.city ?? "");
+  const [cityOptions, setCityOptions] = useState<CityOption[]>([]);
+  const [selectedCity, setSelectedCity] = useState<CityOption | null>(() =>
+    data.profile ? { ...data.profile, id: "saved-city", detail: [data.profile.country].filter(Boolean).join(" · ") } : null,
+  );
+  const [searchStatus, setSearchStatus] = useState<"idle" | "searching" | "failed">("idle");
+  const [locating, setLocating] = useState(false);
+  const [preferredScenes, setPreferredScenes] = useState<Scene[]>(
+    data.profile?.preferredScenes?.length
+      ? data.profile.preferredScenes
+      : ["work", "meeting", "gym", "casual", "friends"],
+  );
 
-  async function saveCity(event: FormEvent) {
-    event.preventDefault();
+  useEffect(() => {
     const trimmed = city.trim();
-    if (trimmed.length < 2) {
-      setNotice("请先输入常用城市或地区。 ");
+    if (selectedCity?.city === trimmed || trimmed.length < 2) {
       return;
     }
-    setSaving(true);
-    setNotice("");
-    try {
-      let profile: Profile;
-      const known = knownCities[trimmed];
-      if (known) {
-        profile = { city: trimmed, ...known };
-      } else {
-        const params = new URLSearchParams({ name: trimmed, count: "1", language: "zh", format: "json" });
-        const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?${params}`);
-        if (!response.ok) throw new Error("city lookup failed");
-        const result = await response.json();
-        const location = result.results?.[0];
-        if (!location) throw new Error("city not found");
-        profile = {
-          city: location.name,
-          country: location.country ?? "",
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setSearchStatus("searching");
+      setNotice("");
+      try {
+        const localOptions: CityOption[] = Object.entries(knownCities)
+          .filter(([name]) => name.includes(trimmed) || trimmed.includes(name))
+          .map(([name, location]) => ({
+            id: `known-${name}`,
+            city: name,
+            ...location,
+            detail: location.country,
+          }));
+        async function search(name: string) {
+          const params = new URLSearchParams({ name, count: "6", language: "zh", format: "json" });
+          const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?${params}`, {
+            signal: controller.signal,
+          });
+          if (!response.ok) throw new Error("city lookup failed");
+          const result = await response.json();
+          return Array.isArray(result.results) ? result.results : [];
+        }
+        let remoteResults = await search(trimmed);
+        if (remoteResults.length === 0 && trimmed.endsWith("市")) {
+          remoteResults = await search(trimmed.slice(0, -1));
+        }
+        const remoteOptions: CityOption[] = remoteResults.map((location: Record<string, unknown>) => ({
+          id: String(location.id ?? `${location.latitude}-${location.longitude}`),
+          city: String(location.name ?? trimmed),
+          country: String(location.country ?? ""),
           latitude: Number(location.latitude),
           longitude: Number(location.longitude),
-          timezone: location.timezone ?? "auto",
-        };
+          timezone: String(location.timezone ?? "auto"),
+          detail: [location.admin1, location.country].filter(Boolean).join(" · "),
+        }));
+        const unique = [...localOptions, ...remoteOptions].filter(
+          (option, index, items) => items.findIndex((item) => item.latitude === option.latitude && item.longitude === option.longitude) === index,
+        );
+        setCityOptions(unique.slice(0, 6));
+        setSearchStatus("idle");
+      } catch (error) {
+        if ((error as Error).name !== "AbortError") {
+          setCityOptions([]);
+          setSearchStatus("failed");
+        }
       }
-      setData((previous) => ({ ...previous, profile }));
-      navigate("/wardrobe/add");
-    } catch {
-      setNotice("没有找到这个地区。你可以换成城市名，例如“首尔”或“上海”。 ");
-      setSaving(false);
+    }, 400);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [city, selectedCity?.city, setNotice]);
+
+  function chooseCity(option: CityOption) {
+    setSelectedCity(option);
+    setCity(option.city);
+    setCityOptions([]);
+    setSearchStatus("idle");
+    setNotice(`已选择${option.city}${option.detail ? ` · ${option.detail}` : ""}`);
+  }
+
+  function useCurrentLocation() {
+    if (!navigator.geolocation) {
+      setNotice("这台设备暂时不能读取位置，请搜索并选择城市。 ");
+      return;
     }
+    setLocating(true);
+    setNotice("正在读取当前位置…");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const option: CityOption = {
+          id: "current-location",
+          city: "当前位置",
+          country: "",
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          timezone: "auto",
+          detail: "已按设备定位",
+        };
+        setSelectedCity(option);
+        setCity(option.city);
+        setCityOptions([]);
+        setLocating(false);
+        setNotice("已获取当前位置，天气会按这里读取。 ");
+      },
+      () => {
+        setLocating(false);
+        setNotice("没有取得位置权限，请搜索并选择城市。 ");
+      },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 },
+    );
+  }
+
+  function togglePreferredScene(scene: Scene) {
+    setPreferredScenes((previous) =>
+      previous.includes(scene)
+        ? previous.filter((item) => item !== scene)
+        : [...previous, scene],
+    );
+  }
+
+  function saveCity(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedCity || selectedCity.city !== city.trim()) {
+      setNotice("请从搜索结果里选中一个城市，或使用当前位置。 ");
+      return;
+    }
+    if (preferredScenes.length === 0) {
+      setNotice("请至少选择一个你常用的穿衣场景。 ");
+      return;
+    }
+    const profile: Profile = {
+      city: selectedCity.city,
+      country: selectedCity.country,
+      latitude: selectedCity.latitude,
+      longitude: selectedCity.longitude,
+      timezone: selectedCity.timezone,
+      preferredScenes,
+    };
+    setData((previous) => ({
+      ...previous,
+      profile,
+      recentScenes: previous.profile ? previous.recentScenes : preferredScenes.slice(0, 3),
+    }));
+    navigate("/wardrobe/add");
   }
 
   return (
@@ -609,22 +860,56 @@ function StartScreen({
 
         <form className="glass-panel city-form" onSubmit={saveCity}>
           <label htmlFor="city">你通常从哪里出门？</label>
-          <div className="city-row">
+          <div className="city-search-wrap">
             <input
               id="city"
-              list="popular-cities"
               value={city}
-              onChange={(event) => setCity(event.target.value)}
-              placeholder="例如：首尔"
+              onChange={(event) => {
+                setCity(event.target.value);
+                setSelectedCity(null);
+                setCityOptions([]);
+              }}
+              placeholder="搜索城市，例如：石家庄"
               autoComplete="address-level2"
             />
-            <datalist id="popular-cities">
-              {Object.keys(knownCities).map((name) => <option value={name} key={name} />)}
-            </datalist>
-            <button type="submit" className="primary-button compact" disabled={saving}>
-              {saving ? "正在保存" : "下一步"}
-            </button>
+            {searchStatus === "searching" && <span className="city-search-status">正在搜索…</span>}
+            {cityOptions.length > 0 && (
+              <div className="city-results" role="listbox" aria-label="城市搜索结果">
+                {cityOptions.map((option) => (
+                  <button type="button" role="option" aria-selected="false" key={option.id} onClick={() => chooseCity(option)}>
+                    <strong>{option.city}</strong>
+                    <span>{option.detail || "选择这个位置"}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {searchStatus === "failed" && <p className="city-search-error">城市搜索暂时不可用，请稍后再试。</p>}
           </div>
+          <button className="location-button" type="button" onClick={useCurrentLocation} disabled={locating}>
+            <span aria-hidden="true">⌖</span>{locating ? "正在获取位置" : "使用当前位置"}
+          </button>
+
+          <fieldset className="start-scenes">
+            <legend>你平时会遇到哪些场景？</legend>
+            <p>先选常用的，以后随时可以换。</p>
+            <div>
+              {allScenes.map((item) => (
+                <button
+                  className={preferredScenes.includes(item) ? "selected" : ""}
+                  type="button"
+                  key={item}
+                  onClick={() => togglePreferredScene(item)}
+                  aria-pressed={preferredScenes.includes(item)}
+                >
+                  {sceneLabels[item]}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
+          <button type="submit" className="primary-button full">
+              下一步
+            </button>
           {notice && <p className="inline-notice" role="alert">{notice}</p>}
         </form>
 
@@ -648,11 +933,18 @@ function AddScreen({
   const [photo, setPhoto] = useState("");
   const [material, setMaterial] = useState("不知道");
   const [thickness, setThickness] = useState("不知道");
+  const [size, setSize] = useState("");
+  const [careNotes, setCareNotes] = useState("");
+  const [labelText, setLabelText] = useState("");
+  const [careLabelPhoto, setCareLabelPhoto] = useState("");
+  const [hangtagPhoto, setHangtagPhoto] = useState("");
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [totalCount, setTotalCount] = useState(3);
   const [cleanCount, setCleanCount] = useState(3);
   const [message, setMessage] = useState("");
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [labelBusy, setLabelBusy] = useState(false);
+  const [labelProgress, setLabelProgress] = useState(0);
   const progress = readiness(data.garments);
 
   function changeCategory(next: Category) {
@@ -671,6 +963,45 @@ function AddScreen({
       setMessage("这张照片没有读取成功，请重新拍摄或换一张。 ");
     } finally {
       setPhotoBusy(false);
+    }
+  }
+
+  async function pickLabelPhoto(event: ChangeEvent<HTMLInputElement>, kind: "care" | "hangtag") {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setMessage("");
+    try {
+      const image = await compressImage(file, 1200, 0.72);
+      if (kind === "care") setCareLabelPhoto(image);
+      else setHangtagPhoto(image);
+    } catch {
+      setMessage("这张标签照片没有读取成功，请重新拍摄或换一张。 ");
+    }
+  }
+
+  async function readLabels() {
+    const images = [careLabelPhoto, hangtagPhoto].filter(Boolean);
+    if (images.length === 0) return;
+    setLabelBusy(true);
+    setLabelProgress(0);
+    setMessage("第一次读取标签会多等一会儿，文字会留在这台设备上处理。 ");
+    try {
+      const text = await recognizeLabels(images, setLabelProgress);
+      const details = readLabelDetails(text);
+      setLabelText(text.trim());
+      if (details.material) setMaterial(details.material);
+      if (details.size) setSize(details.size);
+      if (details.careNotes) setCareNotes(details.careNotes);
+      setMessage(
+        details.material || details.size || details.careNotes
+          ? "标签读好了。请检查下面的信息，不准确的地方可以直接改。"
+          : "照片已保留，但没有读出可靠信息。你可以在下面手动补充。",
+      );
+    } catch {
+      setMessage("标签文字没有读取成功，照片已经保留。你可以直接在下面补充信息。 ");
+    } finally {
+      setLabelBusy(false);
+      setLabelProgress(0);
     }
   }
 
@@ -699,6 +1030,11 @@ function AddScreen({
       photo,
       material,
       thickness,
+      size,
+      careNotes,
+      labelText,
+      careLabelPhoto,
+      hangtagPhoto,
       scenes,
       totalCount: category === "socks" ? totalCount : undefined,
       cleanCount: category === "socks" ? cleanCount : undefined,
@@ -711,6 +1047,11 @@ function AddScreen({
       return;
     }
     setPhoto("");
+    setCareLabelPhoto("");
+    setHangtagPhoto("");
+    setLabelText("");
+    setSize("");
+    setCareNotes("");
     setMessage(`${color}${subtype}已经收好。再添一件没打勾的衣服，就能看到第一套。`);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -794,18 +1135,49 @@ function AddScreen({
 
           <details className="optional-fields">
             <summary>多告诉我一点，搭配会更贴近你 <span>选填</span></summary>
+            <div className="label-section">
+              <div className="label-section-heading">
+                <strong>衣服标签</strong>
+                <span>上传一张或两张都可以</span>
+              </div>
+              <div className="label-upload-grid">
+                <label className={careLabelPhoto ? "has-label-photo" : ""}>
+                  {careLabelPhoto ? <img src={careLabelPhoto} alt="水洗标" /> : <><b>＋</b><span>水洗标</span><small>材质和洗护说明</small></>}
+                  <input type="file" accept="image/*" capture="environment" onChange={(event) => void pickLabelPhoto(event, "care")} />
+                </label>
+                <label className={hangtagPhoto ? "has-label-photo" : ""}>
+                  {hangtagPhoto ? <img src={hangtagPhoto} alt="购买吊牌" /> : <><b>＋</b><span>购买吊牌</span><small>尺码和商品信息</small></>}
+                  <input type="file" accept="image/*" capture="environment" onChange={(event) => void pickLabelPhoto(event, "hangtag")} />
+                </label>
+              </div>
+              {(careLabelPhoto || hangtagPhoto) && (
+                <button className="label-read-button" type="button" onClick={() => void readLabels()} disabled={labelBusy}>
+                  {labelBusy ? `正在读取 ${Math.round(labelProgress * 100)}%` : "读取标签信息"}
+                </button>
+              )}
+            </div>
             <div className="two-fields">
               <label>材质
                 <select value={material} onChange={(event) => setMaterial(event.target.value)}>
                   {["不知道", "棉", "亚麻", "羊毛", "牛仔", "聚酯纤维", "皮革", "混纺"].map((item) => <option key={item}>{item}</option>)}
                 </select>
               </label>
+              <label>尺码
+                <input value={size} onChange={(event) => setSize(event.target.value)} placeholder="例如：L" />
+              </label>
+            </div>
+            <div className="two-fields">
               <label>厚薄
                 <select value={thickness} onChange={(event) => setThickness(event.target.value)}>
                   {["不知道", "薄", "适中", "厚"].map((item) => <option key={item}>{item}</option>)}
                 </select>
               </label>
+              <label>洗护提醒
+                <input value={careNotes} onChange={(event) => setCareNotes(event.target.value)} placeholder="例如：不可烘干" />
+              </label>
             </div>
+            {labelText && <p className="label-read-note">已经读过标签文字；上面的内容以你最后确认的为准。</p>}
+            <p className="field-label scene-field-label">更适合哪些场景</p>
             <div className="scene-checks">
               {(Object.keys(sceneLabels) as Scene[]).map((item) => (
                 <label key={item}><input type="checkbox" checked={scenes.includes(item)} onChange={() => toggleScene(item)} />{sceneLabels[item]}</label>
@@ -814,7 +1186,7 @@ function AddScreen({
           </details>
 
           {message && <p className="form-message" role="status">{message}</p>}
-          <button className="primary-button full" type="submit" disabled={photoBusy}>放进我的衣橱</button>
+          <button className="primary-button full" type="submit" disabled={photoBusy || labelBusy}>放进我的衣橱</button>
         </form>
       </section>
     </main>
@@ -896,7 +1268,24 @@ function TodayScreen({
 }) {
   const [manualTemp, setManualTemp] = useState("22");
   const [manualCondition, setManualCondition] = useState("1");
+  const [scenePickerOpen, setScenePickerOpen] = useState(false);
+  const sceneCloseRef = useRef<HTMLButtonElement>(null);
   const today = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date());
+
+  useEffect(() => {
+    if (!scenePickerOpen) return;
+    sceneCloseRef.current?.focus();
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setScenePickerOpen(false);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [scenePickerOpen]);
+
+  function chooseScene(next: Scene) {
+    setScene(next);
+    setScenePickerOpen(false);
+  }
 
   if (!data.profile) {
     return (
@@ -935,11 +1324,17 @@ function TodayScreen({
       </section>
 
       <section className="today-content">
-        <div className="scene-strip" aria-label="选择今天的场景">
-          {(Object.keys(sceneLabels) as Scene[]).map((item) => (
-            <button className={scene === item ? "selected" : ""} type="button" key={item} onClick={() => setScene(item)}>{item === "leisure" ? "休闲聚会" : sceneLabels[item]}</button>
-          ))}
+        <div className="scene-picker-bar">
+          <div className="scene-strip" aria-label="最近使用的场景">
+            {data.recentScenes.slice(0, 3).map((item) => (
+              <button className={scene === item ? "selected" : ""} type="button" key={item} onClick={() => chooseScene(item)}>{sceneLabels[item]}</button>
+            ))}
+          </div>
+          <button className="all-scenes-button" type="button" onClick={() => setScenePickerOpen(true)} aria-haspopup="dialog">
+            <span>全部场景</span><b aria-hidden="true">＋</b>
+          </button>
         </div>
+        {notice && <p className="inline-notice today-notice scene-change-notice" role="status">{notice}</p>}
 
         {worn ? (
           <section className="success-panel glass-panel">
@@ -974,7 +1369,6 @@ function TodayScreen({
               <div><span>搭配</span><p>{outfit.reasons[2]}</p></div>
             </section>
             {outfit.limitation && <p className="limitation"><b>有一件事要提醒你</b>{outfit.limitation}</p>}
-            {notice && <p className="inline-notice today-notice" role="status">{notice}</p>}
             <div className="today-actions">
               <button className="secondary-button" type="button" onClick={swapOne}>换一件</button>
               <button className="primary-button" type="button" onClick={confirmWear}>今天穿这套</button>
@@ -984,6 +1378,30 @@ function TodayScreen({
 
         <BottomNav current="today" />
       </section>
+
+      {scenePickerOpen && (
+        <div className="scene-overlay" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setScenePickerOpen(false);
+        }}>
+          <section className="scene-sheet" role="dialog" aria-modal="true" aria-labelledby="scene-sheet-title">
+            <header>
+              <div>
+                <p>今天准备做什么？</p>
+                <h2 id="scene-sheet-title">换一个场景</h2>
+              </div>
+              <button ref={sceneCloseRef} type="button" onClick={() => setScenePickerOpen(false)} aria-label="关闭场景选择">×</button>
+            </header>
+            <div className="scene-library">
+              {allScenes.map((item) => (
+                <button className={scene === item ? "selected" : ""} type="button" key={item} onClick={() => chooseScene(item)}>
+                  <span><strong>{sceneLabels[item]}</strong><small>{sceneDescriptions[item]}</small></span>
+                  <b aria-hidden="true">{scene === item ? "✓" : "›"}</b>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
@@ -1259,7 +1677,9 @@ function LaundryScreen({
                     <small>
                       {item.category === "socks"
                         ? `${Math.max(1, dirtySockCount(item))} 双待洗`
-                        : "洗好前不会参与推荐"}
+                        : item.careNotes
+                          ? `洗护：${item.careNotes}`
+                          : "洗好前不会参与推荐"}
                     </small>
                   </span>
                   <input
@@ -1295,26 +1715,67 @@ function WardrobeScreen({
   data: WardrobeData;
   setData: React.Dispatch<React.SetStateAction<WardrobeData>>;
 }) {
-  function moveToLaundry(item: Garment) {
+  const categoryOrder: Category[] = ["top", "bottom", "outer", "shoes", "socks"];
+  const firstWithItems = categoryOrder.find((category) => data.garments.some((item) => item.category === category));
+  const [activeCategory, setActiveCategory] = useState<Category>(firstWithItems ?? "top");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailBusy, setDetailBusy] = useState(false);
+  const [detailProgress, setDetailProgress] = useState(0);
+  const [detailMessage, setDetailMessage] = useState("");
+  const [draft, setDraft] = useState({
+    photo: "",
+    material: "不知道",
+    thickness: "不知道",
+    size: "",
+    careNotes: "",
+    labelText: "",
+    careLabelPhoto: "",
+    hangtagPhoto: "",
+    scenes: [] as Scene[],
+  });
+  const detailCloseRef = useRef<HTMLButtonElement>(null);
+  const selectedItem = data.garments.find((item) => item.id === selectedId) ?? null;
+  const visibleItems = data.garments.filter((item) => item.category === activeCategory);
+
+  function openGarment(item: Garment) {
+    setDraft({
+      photo: item.photo,
+      material: item.material,
+      thickness: item.thickness,
+      size: item.size,
+      careNotes: item.careNotes,
+      labelText: item.labelText,
+      careLabelPhoto: item.careLabelPhoto,
+      hangtagPhoto: item.hangtagPhoto,
+      scenes: item.scenes,
+    });
+    setDetailMessage("");
+    setSelectedId(item.id);
+    window.setTimeout(() => detailCloseRef.current?.focus(), 0);
+  }
+
+  useEffect(() => {
+    if (!selectedId) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setSelectedId(null);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [selectedId]);
+
+  function updateGarment(id: string, update: Partial<Garment>) {
     setData((previous) => ({
       ...previous,
-      garments: previous.garments.map((candidate) => {
-        if (candidate.id !== item.id) return candidate;
-        if (candidate.category === "socks") {
-          return { ...candidate, cleanCount: 0, state: "laundry" };
-        }
-        return { ...candidate, state: "laundry" };
-      }),
+      garments: previous.garments.map((item) => item.id === id ? { ...item, ...update } : item),
     }));
   }
 
+  function moveToLaundry(item: Garment) {
+    updateGarment(item.id, item.category === "socks" ? { cleanCount: 0, state: "laundry" } : { state: "laundry" });
+  }
+
   function pause(item: Garment) {
-    setData((previous) => ({
-      ...previous,
-      garments: previous.garments.map((candidate) =>
-        candidate.id === item.id ? { ...candidate, state: "paused" } : candidate,
-      ),
-    }));
+    updateGarment(item.id, { state: "paused" });
   }
 
   function activate(item: Garment) {
@@ -1330,14 +1791,67 @@ function WardrobeScreen({
     );
   }
 
-  function statusCopy(item: Garment) {
+  function statusBadge(item: Garment) {
     const location = garmentLocation(item);
-    if (location === "paused") return "先收起来 · 不参与推荐";
+    if (location === "paused") return "已收起";
     if (item.category === "socks" && dirtySockCount(item) > 0 && (item.cleanCount ?? 0) > 0) {
-      return `衣架还有 ${item.cleanCount} 双 · ${dirtySockCount(item)} 双待洗`;
+      return `${dirtySockCount(item)} 双待洗`;
     }
-    if (location === "laundry") return "脏衣篓 · 洗好前不推荐";
-    return "衣架 · 可以推荐";
+    if (location === "laundry") return "脏衣篓";
+    return "";
+  }
+
+  async function replaceDetailPhoto(event: ChangeEvent<HTMLInputElement>, key: "photo" | "careLabelPhoto" | "hangtagPhoto") {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const image = await compressImage(file, key === "photo" ? 900 : 1200, key === "photo" ? 0.78 : 0.72);
+      setDraft((previous) => ({ ...previous, [key]: image }));
+      setDetailMessage("新照片已经放好，保存后生效。 ");
+    } catch {
+      setDetailMessage("这张照片没有读取成功，请换一张再试。 ");
+    }
+  }
+
+  async function rereadDetailLabels() {
+    const images = [draft.careLabelPhoto, draft.hangtagPhoto].filter(Boolean);
+    if (images.length === 0) return;
+    setDetailBusy(true);
+    setDetailProgress(0);
+    setDetailMessage("正在重新读取标签…");
+    try {
+      const text = await recognizeLabels(images, setDetailProgress);
+      const details = readLabelDetails(text);
+      setDraft((previous) => ({
+        ...previous,
+        labelText: text.trim(),
+        material: details.material || previous.material,
+        size: details.size || previous.size,
+        careNotes: details.careNotes || previous.careNotes,
+      }));
+      setDetailMessage("标签读好了，请检查并修改不准确的地方。 ");
+    } catch {
+      setDetailMessage("标签文字没有读取成功，原有信息没有改变。 ");
+    } finally {
+      setDetailBusy(false);
+      setDetailProgress(0);
+    }
+  }
+
+  function toggleDraftScene(scene: Scene) {
+    setDraft((previous) => ({
+      ...previous,
+      scenes: previous.scenes.includes(scene)
+        ? previous.scenes.filter((item) => item !== scene)
+        : [...previous.scenes, scene],
+    }));
+  }
+
+  function saveDetails(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedItem) return;
+    updateGarment(selectedItem.id, draft);
+    setSelectedId(null);
   }
 
   return (
@@ -1350,7 +1864,7 @@ function WardrobeScreen({
         <button type="button" onClick={() => navigate("/wardrobe/add")}>添加衣物</button>
       </header>
 
-      <section className="collection-content">
+      <section className="collection-content wardrobe-content">
         {data.garments.length === 0 ? (
           <div className="empty-collection glass-panel">
             <h2>衣橱还是空的</h2>
@@ -1358,38 +1872,135 @@ function WardrobeScreen({
             <button className="primary-button full" type="button" onClick={() => navigate("/wardrobe/add")}>添加第一件衣服</button>
           </div>
         ) : (
-          <div className="wardrobe-list">
-            {data.garments.map((item) => {
-              const location = garmentLocation(item);
-              return (
-                <article className="wardrobe-item" key={item.id}>
-                  <img src={item.photo} alt={`${item.color}${item.subtype}`} />
-                  <div className="wardrobe-item-copy">
-                    <span>{categoryLabels[item.category]}</span>
-                    <h2>{item.color}{item.subtype}</h2>
-                    <p>{statusCopy(item)}</p>
-                    <div className="wardrobe-actions">
-                      {location === "ready" && (
-                        <>
-                          <button type="button" onClick={() => moveToLaundry(item)}>要洗了</button>
-                          <button type="button" onClick={() => pause(item)}>先收起来</button>
-                        </>
-                      )}
-                      {location === "laundry" && (
-                        <button type="button" onClick={() => activate(item)}>洗好放回衣架</button>
-                      )}
-                      {location === "paused" && (
-                        <button type="button" onClick={() => activate(item)}>重新启用</button>
-                      )}
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
+          <div className="wardrobe-browser">
+            <nav className="wardrobe-categories" aria-label="衣物分类">
+              {categoryOrder.map((category) => {
+                const count = data.garments.filter((item) => item.category === category).length;
+                return (
+                  <button
+                    className={activeCategory === category ? "selected" : ""}
+                    type="button"
+                    key={category}
+                    onClick={() => setActiveCategory(category)}
+                  >
+                    <span>{category === "socks" ? "袜子" : categoryLabels[category]}</span>
+                    <small>{count}</small>
+                  </button>
+                );
+              })}
+            </nav>
+            <div className="wardrobe-grid" aria-live="polite">
+              {visibleItems.map((item) => {
+                const badge = statusBadge(item);
+                return (
+                  <button
+                    className="wardrobe-tile"
+                    type="button"
+                    key={item.id}
+                    data-garment-category={item.category}
+                    onClick={() => openGarment(item)}
+                  >
+                    <span className="wardrobe-photo">
+                      <img src={item.photo} alt={`${item.color}${item.subtype}`} />
+                      {badge && <b>{badge}</b>}
+                    </span>
+                    <strong>{item.color}{item.subtype}</strong>
+                    {item.size && <small>{item.size}</small>}
+                  </button>
+                );
+              })}
+              {visibleItems.length === 0 && (
+                <div className="empty-category">
+                  <p>这里还没有{activeCategory === "socks" ? "袜子" : categoryLabels[activeCategory]}</p>
+                  <button type="button" onClick={() => navigate("/wardrobe/add")}>添加一件</button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </section>
       <BottomNav current="wardrobe" />
+
+      {selectedItem && (
+        <div className="detail-overlay" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setSelectedId(null);
+        }}>
+          <form className="garment-detail" role="dialog" aria-modal="true" aria-labelledby="garment-detail-title" onSubmit={saveDetails}>
+            <header>
+              <div>
+                <p>{categoryLabels[selectedItem.category]}</p>
+                <h2 id="garment-detail-title">{selectedItem.color}{selectedItem.subtype}</h2>
+              </div>
+              <button ref={detailCloseRef} type="button" onClick={() => setSelectedId(null)} aria-label="关闭衣物详情">×</button>
+            </header>
+
+            <label className="detail-main-photo">
+              <img src={draft.photo} alt="当前衣物照片" />
+              <span>更换照片</span>
+              <input type="file" accept="image/*" onChange={(event) => void replaceDetailPhoto(event, "photo")} />
+            </label>
+
+            <div className="detail-fields">
+              <label>材质
+                <select value={draft.material} onChange={(event) => setDraft((previous) => ({ ...previous, material: event.target.value }))}>
+                  {["不知道", "棉", "亚麻", "羊毛", "牛仔", "聚酯纤维", "皮革", "混纺"].map((item) => <option key={item}>{item}</option>)}
+                </select>
+              </label>
+              <label>厚薄
+                <select value={draft.thickness} onChange={(event) => setDraft((previous) => ({ ...previous, thickness: event.target.value }))}>
+                  {["不知道", "薄", "适中", "厚"].map((item) => <option key={item}>{item}</option>)}
+                </select>
+              </label>
+              <label>尺码
+                <input value={draft.size} onChange={(event) => setDraft((previous) => ({ ...previous, size: event.target.value }))} placeholder="例如：L" />
+              </label>
+              <label>洗护提醒
+                <input value={draft.careNotes} onChange={(event) => setDraft((previous) => ({ ...previous, careNotes: event.target.value }))} placeholder="例如：不可烘干" />
+              </label>
+            </div>
+
+            <div className="detail-labels">
+              <div className="label-section-heading"><strong>衣服标签</strong><span>点照片可以更换</span></div>
+              <div className="label-upload-grid">
+                <label className={draft.careLabelPhoto ? "has-label-photo" : ""}>
+                  {draft.careLabelPhoto ? <img src={draft.careLabelPhoto} alt="水洗标" /> : <><b>＋</b><span>水洗标</span></>}
+                  <input type="file" accept="image/*" onChange={(event) => void replaceDetailPhoto(event, "careLabelPhoto")} />
+                </label>
+                <label className={draft.hangtagPhoto ? "has-label-photo" : ""}>
+                  {draft.hangtagPhoto ? <img src={draft.hangtagPhoto} alt="购买吊牌" /> : <><b>＋</b><span>购买吊牌</span></>}
+                  <input type="file" accept="image/*" onChange={(event) => void replaceDetailPhoto(event, "hangtagPhoto")} />
+                </label>
+              </div>
+              {(draft.careLabelPhoto || draft.hangtagPhoto) && (
+                <button className="label-read-button" type="button" onClick={() => void rereadDetailLabels()} disabled={detailBusy}>
+                  {detailBusy ? `正在读取 ${Math.round(detailProgress * 100)}%` : "重新读取标签"}
+                </button>
+              )}
+            </div>
+
+            <div className="detail-scenes">
+              <p>适合这些场景</p>
+              <div>
+                {allScenes.map((scene) => (
+                  <button className={draft.scenes.includes(scene) ? "selected" : ""} type="button" key={scene} onClick={() => toggleDraftScene(scene)}>
+                    {sceneLabels[scene]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="detail-state-actions">
+              {garmentLocation(selectedItem) === "ready" && (
+                <><button type="button" onClick={() => moveToLaundry(selectedItem)}>放进脏衣篓</button><button type="button" onClick={() => pause(selectedItem)}>先收起来</button></>
+              )}
+              {garmentLocation(selectedItem) === "laundry" && <button type="button" onClick={() => activate(selectedItem)}>洗好放回衣架</button>}
+              {garmentLocation(selectedItem) === "paused" && <button type="button" onClick={() => activate(selectedItem)}>重新启用</button>}
+            </div>
+            {detailMessage && <p className="detail-message" role="status">{detailMessage}</p>}
+            <button className="primary-button full" type="submit" disabled={detailBusy}>保存修改</button>
+          </form>
+        </div>
+      )}
     </main>
   );
 }
