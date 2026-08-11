@@ -461,6 +461,8 @@ select:focus {
 }
 
 .text-button {
+  min-width: 72px;
+  min-height: 44px;
   border: 0;
   color: var(--blue);
   background: transparent;
@@ -468,7 +470,13 @@ select:focus {
   cursor: pointer;
 }
 
-.text-button:last-child {
+.simple-header > .text-button:first-child {
+  justify-self: start;
+  text-align: left;
+}
+
+.simple-header > .text-button:last-child {
+  justify-self: end;
   text-align: right;
 }
 

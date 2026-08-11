@@ -91,6 +91,8 @@ test("keeps the weather and menswear lookbook visual system", async () => {
   assert.match(styles, /Weather × menswear lookbook/);
   assert.match(styles, /grid-template-areas:\s*\n\s*"top bottom"/);
   assert.match(styles, /font-family: var\(--display\)/);
+  assert.match(styles, /\.simple-header > \.text-button:first-child\s*\{[^}]*justify-self: start/s);
+  assert.match(styles, /\.simple-header > \.text-button:last-child\s*\{[^}]*justify-self: end/s);
   assert.doesNotMatch(styles, /transition\s*:\s*all/);
 });
 
