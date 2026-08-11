@@ -1899,11 +1899,13 @@ select:focus {
   letter-spacing: .06em;
 }
 
+.purchase-result > header h1,
 .purchase-result > header h2,
 .purchase-result > header p {
   margin: 0;
 }
 
+.purchase-result > header h1,
 .purchase-result > header h2 {
   margin-top: 4px;
   color: #173f64;
@@ -1953,6 +1955,7 @@ select:focus {
   margin-top: 20px;
 }
 
+.purchase-section h2,
 .purchase-section h3 {
   margin: 0 0 10px;
   color: #34546d;
@@ -2981,6 +2984,7 @@ select {
   box-shadow: 0 14px 30px rgba(20, 40, 61, .07);
 }
 
+.purchase-result > header h1,
 .purchase-result > header h2 {
   color: var(--ink);
   font-family: var(--display);
@@ -3003,6 +3007,195 @@ select {
   border-color: rgba(20,40,61,.1);
   border-radius: 5px;
   background: #f3f5f4;
+}
+
+.header-action-spacer {
+  display: block;
+  justify-self: end;
+  width: 72px;
+  height: 44px;
+}
+
+.purchase-stack-header {
+  min-height: 70px;
+}
+
+.purchase-stack-content {
+  padding-top: 16px;
+}
+
+.purchase-result-page {
+  margin-top: 0;
+  border-radius: 8px;
+  padding: 16px;
+  overflow: hidden;
+}
+
+.purchase-result-product {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin: -4px 0 18px;
+  border-bottom: 1px solid rgba(20, 40, 61, .1);
+  padding-bottom: 14px;
+}
+
+.purchase-result-product img {
+  width: 64px;
+  height: 64px;
+  border-radius: 5px;
+  background: #eef1f1;
+  outline: 1px solid oklch(0 0 0 / .1);
+  outline-offset: -1px;
+  object-fit: contain;
+}
+
+.purchase-result-product div,
+.purchase-match-copy,
+.purchase-detail-grid figcaption {
+  display: grid;
+  gap: 3px;
+}
+
+.purchase-result-product span,
+.purchase-match-copy small,
+.purchase-detail-grid figcaption span {
+  color: #7a8994;
+  font-size: 10px;
+}
+
+.purchase-result-product strong,
+.purchase-match-copy strong,
+.purchase-detail-grid figcaption strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.purchase-match-links {
+  display: grid;
+  gap: 8px;
+}
+
+.purchase-match-link {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 76px;
+  border: 1px solid rgba(20, 40, 61, .12);
+  border-radius: 8px;
+  padding: 9px 11px;
+  color: var(--ink);
+  background: #f3f5f4;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, background-color 140ms ease;
+}
+
+.purchase-match-link:active {
+  transform: scale(.98);
+}
+
+.purchase-match-link:focus-visible {
+  border-color: var(--blue);
+}
+
+.purchase-match-thumbnails {
+  display: grid;
+  grid-template-columns: repeat(3, 23px);
+  align-items: center;
+  width: 76px;
+}
+
+.purchase-match-thumbnails img {
+  width: 30px;
+  height: 48px;
+  border-radius: 4px;
+  background: #ecefed;
+  outline: 1px solid oklch(0 0 0 / .1);
+  outline-offset: -1px;
+  object-fit: contain;
+}
+
+.purchase-match-copy small {
+  font-size: 11px;
+}
+
+.purchase-match-arrow {
+  color: #71818c;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.purchase-detail-intro {
+  margin: 4px 2px 18px;
+}
+
+.purchase-detail-intro span {
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .05em;
+}
+
+.purchase-detail-intro h1,
+.purchase-detail-intro p {
+  margin: 0;
+}
+
+.purchase-detail-intro h1 {
+  margin-top: 5px;
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 29px;
+  letter-spacing: -.025em;
+}
+
+.purchase-detail-intro p {
+  margin-top: 8px;
+  color: #667783;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.purchase-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.purchase-detail-grid figure {
+  margin: 0;
+  border: 1px solid rgba(20, 40, 61, .1);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(255,255,255,.92);
+}
+
+.purchase-detail-grid figure.purchase-candidate-card {
+  border-color: rgba(23, 104, 200, .32);
+  box-shadow: inset 0 3px 0 var(--blue);
+}
+
+.purchase-detail-grid img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 5px;
+  background: #eef1f1;
+  outline: 1px solid oklch(0 0 0 / .1);
+  outline-offset: -1px;
+  object-fit: contain;
+}
+
+.purchase-detail-grid figcaption {
+  padding: 9px 2px 3px;
+}
+
+.purchase-detail-boundary {
+  margin-bottom: 0;
 }
 
 .wardrobe-browser {

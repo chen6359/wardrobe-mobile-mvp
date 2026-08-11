@@ -32,7 +32,9 @@ export type View =
   | "wear-status"
   | "wardrobe"
   | "laundry"
-  | "purchase";
+  | "purchase"
+  | "purchase-result"
+  | "purchase-detail";
 type WearPlacement = "hanger" | "laundry";
 
 type Profile = {
@@ -341,6 +343,65 @@ type PurchaseAnalysis = {
   missing: Category[];
 };
 
+type PurchaseView = "purchase" | "purchase-result" | "purchase-detail";
+
+type PurchaseDraft = {
+  category: Category;
+  subtype: string;
+  color: string;
+  photo: string;
+  material: string;
+  thickness: string;
+  size: string;
+  careNotes: string;
+  labelText: string;
+  careLabelPhoto: string;
+  hangtagPhoto: string;
+  scenes: Scene[];
+};
+
+type PurchaseResult = {
+  candidate: Garment;
+  analysis: PurchaseAnalysis;
+};
+
+type PurchaseFlowState = {
+  draft: PurchaseDraft;
+  result: PurchaseResult | null;
+  added: boolean;
+  lastView: PurchaseView;
+  detailIndex: number;
+};
+
+function createPurchaseFlow(): PurchaseFlowState {
+  return {
+    draft: {
+      category: "top",
+      subtype: subtypeOptions.top[0],
+      color: "黑色",
+      photo: "",
+      material: "不知道",
+      thickness: "不知道",
+      size: "",
+      careNotes: "",
+      labelText: "",
+      careLabelPhoto: "",
+      hangtagPhoto: "",
+      scenes: [],
+    },
+    result: null,
+    added: false,
+    lastView: "purchase",
+    detailIndex: 0,
+  };
+}
+
+function purchaseViewPath(view: PurchaseView) {
+  if (view === "purchase-result") return "/purchase/result";
+  if (view === "purchase-detail") return "/purchase/detail";
+  return "/purchase";
+}
+
 function purchasePartners(category: Category): Category[] {
   if (category === "top") return ["bottom", "shoes"];
   if (category === "bottom") return ["top", "shoes"];
@@ -501,6 +562,7 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
   const [overrides, setOverrides] = useState<Partial<Record<Category, string>>>({});
   const [notice, setNotice] = useState("");
   const [worn, setWorn] = useState(false);
+  const [purchaseFlow, setPurchaseFlow] = useState<PurchaseFlowState>(createPurchaseFlow);
   const sceneInitialized = useRef(false);
 
   useEffect(() => {
@@ -543,6 +605,9 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
       : requestedView === "wear-status" && !pendingWear
         ? "today"
         : requestedView;
+  const purchasePath = purchaseFlow.result
+    ? purchaseViewPath(purchaseFlow.lastView)
+    : "/purchase";
 
   useEffect(() => {
     if (!hydrated || actualView !== "today" || !data.profile) return;
@@ -612,15 +677,24 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
   }
 
   if (actualView === "wardrobe") {
-    return <WardrobeScreen data={data} setData={setData} />;
+    return <WardrobeScreen data={data} setData={setData} purchasePath={purchasePath} />;
   }
 
   if (actualView === "laundry") {
-    return <LaundryScreen data={data} setData={setData} />;
+    return <LaundryScreen data={data} setData={setData} purchasePath={purchasePath} />;
   }
 
-  if (actualView === "purchase") {
-    return <PurchaseScreen data={data} setData={setData} />;
+  if (["purchase", "purchase-result", "purchase-detail"].includes(actualView)) {
+    return (
+      <PurchaseScreen
+        data={data}
+        setData={setData}
+        view={actualView as PurchaseView}
+        flow={purchaseFlow}
+        setFlow={setPurchaseFlow}
+        purchasePath={purchasePath}
+      />
+    );
   }
 
   const currentWeather = weather;
@@ -725,6 +799,7 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
       rejectOutfit={rejectOutfit}
       confirmWear={confirmWear}
       worn={worn}
+      purchasePath={purchasePath}
     />
   );
 }
@@ -1327,12 +1402,12 @@ function NavIcon({ name }: { name: BottomNavKey }) {
   return <svg {...common}><rect x="4" y="4" width="16" height="16" rx="5" /><path d="M12 8v8M8 12h8" /></svg>;
 }
 
-function BottomNav({ current }: { current: BottomNavKey }) {
+function BottomNav({ current, purchasePath = "/purchase" }: { current: BottomNavKey; purchasePath?: string }) {
   const items: { key: BottomNavKey; label: string; path: string }[] = [
     { key: "today", label: "今天", path: "/today" },
     { key: "laundry", label: "脏衣篓", path: "/wardrobe/laundry" },
     { key: "wardrobe", label: "衣橱", path: "/wardrobe" },
-    { key: "purchase", label: "想买", path: "/purchase" },
+    { key: "purchase", label: "想买", path: purchasePath },
     { key: "add", label: "添加", path: "/wardrobe/add" },
   ];
   return (
@@ -1366,6 +1441,7 @@ function TodayScreen({
   rejectOutfit,
   confirmWear,
   worn,
+  purchasePath,
 }: {
   data: WardrobeData;
   scene: Scene;
@@ -1379,6 +1455,7 @@ function TodayScreen({
   rejectOutfit: (reason: FeedbackReason) => void;
   confirmWear: () => void;
   worn: boolean;
+  purchasePath: string;
 }) {
   const [manualTemp, setManualTemp] = useState("22");
   const [manualCondition, setManualCondition] = useState("1");
@@ -1503,7 +1580,7 @@ function TodayScreen({
           </>
         ) : null}
 
-        <BottomNav current="today" />
+        <BottomNav current="today" purchasePath={purchasePath} />
       </section>
 
       {scenePickerOpen && (
@@ -1783,48 +1860,62 @@ function WearStatusScreen({
 function PurchaseScreen({
   data,
   setData,
+  view,
+  flow,
+  setFlow,
+  purchasePath,
 }: {
   data: WardrobeData;
   setData: React.Dispatch<React.SetStateAction<WardrobeData>>;
+  view: PurchaseView;
+  flow: PurchaseFlowState;
+  setFlow: React.Dispatch<React.SetStateAction<PurchaseFlowState>>;
+  purchasePath: string;
 }) {
-  const [category, setCategory] = useState<Category>("top");
-  const [subtype, setSubtype] = useState(subtypeOptions.top[0]);
-  const [color, setColor] = useState("黑色");
-  const [photo, setPhoto] = useState("");
-  const [material, setMaterial] = useState("不知道");
-  const [thickness, setThickness] = useState("不知道");
-  const [size, setSize] = useState("");
-  const [careNotes, setCareNotes] = useState("");
-  const [labelText, setLabelText] = useState("");
-  const [careLabelPhoto, setCareLabelPhoto] = useState("");
-  const [hangtagPhoto, setHangtagPhoto] = useState("");
-  const [scenes, setScenes] = useState<Scene[]>([]);
   const [message, setMessage] = useState("");
   const [photoBusy, setPhotoBusy] = useState(false);
   const [labelBusy, setLabelBusy] = useState(false);
   const [labelProgress, setLabelProgress] = useState(0);
-  const [result, setResult] = useState<{ candidate: Garment; analysis: PurchaseAnalysis } | null>(null);
-  const [added, setAdded] = useState(false);
+  const { draft, result, added } = flow;
 
-  function resetPurchaseResult() {
-    setResult(null);
-    setAdded(false);
+  useEffect(() => {
+    if (!result && view !== "purchase") {
+      setFlow((previous) => ({ ...previous, lastView: "purchase", detailIndex: 0 }));
+      navigate("/purchase");
+      return;
+    }
+    if (result && view === "purchase-detail" && !result.analysis.matchSets[flow.detailIndex]) {
+      setFlow((previous) => ({ ...previous, lastView: "purchase-result", detailIndex: 0 }));
+      navigate("/purchase/result");
+      return;
+    }
+    if (result && flow.lastView !== view) {
+      setFlow((previous) => ({ ...previous, lastView: view }));
+    }
+  }, [flow.detailIndex, flow.lastView, result, setFlow, view]);
+
+  function updateDraft(update: Partial<PurchaseDraft>) {
+    setFlow((previous) => ({
+      ...previous,
+      draft: { ...previous.draft, ...update },
+      result: null,
+      added: false,
+      lastView: "purchase",
+      detailIndex: 0,
+    }));
   }
 
   function changeCategory(next: Category) {
-    resetPurchaseResult();
-    setCategory(next);
-    setSubtype(subtypeOptions[next][0]);
+    updateDraft({ category: next, subtype: subtypeOptions[next][0] });
   }
 
   async function pickPhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    resetPurchaseResult();
     setPhotoBusy(true);
     setMessage("");
     try {
-      setPhoto(await compressImage(file));
+      updateDraft({ photo: await compressImage(file) });
     } catch {
       setMessage("这张照片没有读取成功，请换一张再试。 ");
     } finally {
@@ -1835,18 +1926,17 @@ function PurchaseScreen({
   async function pickLabelPhoto(event: ChangeEvent<HTMLInputElement>, kind: "care" | "hangtag") {
     const file = event.target.files?.[0];
     if (!file) return;
-    resetPurchaseResult();
     try {
       const image = await compressImage(file, 1200, 0.72);
-      if (kind === "care") setCareLabelPhoto(image);
-      else setHangtagPhoto(image);
+      if (kind === "care") updateDraft({ careLabelPhoto: image });
+      else updateDraft({ hangtagPhoto: image });
     } catch {
       setMessage("这张标签照片没有读取成功，请换一张再试。 ");
     }
   }
 
   async function readLabels() {
-    const images = [careLabelPhoto, hangtagPhoto].filter(Boolean);
+    const images = [draft.careLabelPhoto, draft.hangtagPhoto].filter(Boolean);
     if (images.length === 0) return;
     setLabelBusy(true);
     setLabelProgress(0);
@@ -1854,10 +1944,12 @@ function PurchaseScreen({
     try {
       const text = await recognizeLabels(images, setLabelProgress);
       const details = readLabelDetails(text);
-      setLabelText(text.trim());
-      if (details.material) setMaterial(details.material);
-      if (details.size) setSize(details.size);
-      if (details.careNotes) setCareNotes(details.careNotes);
+      updateDraft({
+        labelText: text.trim(),
+        material: details.material || draft.material,
+        size: details.size || draft.size,
+        careNotes: details.careNotes || draft.careNotes,
+      });
       setMessage("标签读好了，请检查并修改不准确的地方。 ");
     } catch {
       setMessage("标签文字没有读取成功，照片已经保留。 ");
@@ -1868,40 +1960,47 @@ function PurchaseScreen({
   }
 
   function toggleScene(value: Scene) {
-    resetPurchaseResult();
-    setScenes((previous) =>
-      previous.includes(value) ? previous.filter((item) => item !== value) : [...previous, value],
-    );
+    updateDraft({
+      scenes: draft.scenes.includes(value)
+        ? draft.scenes.filter((item) => item !== value)
+        : [...draft.scenes, value],
+    });
   }
 
   function inspectPurchase(event: FormEvent) {
     event.preventDefault();
-    if (!photo) {
+    if (!draft.photo) {
       setMessage("请先拍下商品，或从相册选择商品截图。 ");
       return;
     }
     const candidate: Garment = {
       id: "purchase-preview",
-      category,
-      subtype,
-      color,
+      category: draft.category,
+      subtype: draft.subtype,
+      color: draft.color,
       state: "ready",
-      photo,
-      material,
-      thickness,
-      size,
-      careNotes,
-      labelText,
-      careLabelPhoto,
-      hangtagPhoto,
-      scenes,
-      totalCount: category === "socks" ? 1 : undefined,
-      cleanCount: category === "socks" ? 1 : undefined,
+      photo: draft.photo,
+      material: draft.material,
+      thickness: draft.thickness,
+      size: draft.size,
+      careNotes: draft.careNotes,
+      labelText: draft.labelText,
+      careLabelPhoto: draft.careLabelPhoto,
+      hangtagPhoto: draft.hangtagPhoto,
+      scenes: draft.scenes,
+      totalCount: draft.category === "socks" ? 1 : undefined,
+      cleanCount: draft.category === "socks" ? 1 : undefined,
       createdAt: new Date().toISOString(),
     };
-    setResult({ candidate, analysis: analyzePurchase(candidate, data.garments) });
+    setFlow((previous) => ({
+      ...previous,
+      result: { candidate, analysis: analyzePurchase(candidate, data.garments) },
+      added: false,
+      lastView: "purchase-result",
+      detailIndex: 0,
+    }));
     setMessage("");
-    window.setTimeout(() => document.querySelector(".purchase-result")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+    navigate("/purchase/result");
   }
 
   function addPurchasedItem() {
@@ -1912,7 +2011,134 @@ function PurchaseScreen({
       createdAt: new Date().toISOString(),
     };
     setData((previous) => ({ ...previous, garments: [...previous.garments, garment] }));
-    setAdded(true);
+    setFlow((previous) => ({ ...previous, added: true }));
+  }
+
+  function showForm() {
+    setFlow((previous) => ({ ...previous, lastView: "purchase" }));
+    navigate("/purchase");
+  }
+
+  function showResult() {
+    setFlow((previous) => ({ ...previous, lastView: "purchase-result" }));
+    navigate("/purchase/result");
+  }
+
+  function showDetail(index: number) {
+    setFlow((previous) => ({
+      ...previous,
+      detailIndex: index,
+      lastView: "purchase-detail",
+    }));
+    navigate("/purchase/detail");
+  }
+
+  if (result && view === "purchase-detail") {
+    const selectedItems = result.analysis.matchSets[flow.detailIndex];
+    if (!selectedItems) return null;
+    const outfitItems = [result.candidate, ...selectedItems];
+    return (
+      <main className="collection-shell purchase-shell purchase-stack-shell">
+        <header className="simple-header purchase-stack-header">
+          <button className="text-button" type="button" onClick={showResult}>返回</button>
+          <div><p>搭配详情</p><strong>穿法 {flow.detailIndex + 1}</strong></div>
+          <span className="header-action-spacer" aria-hidden="true" />
+        </header>
+
+        <section className="collection-content purchase-stack-content">
+          <div className="purchase-detail-intro">
+            <span>可以这样穿</span>
+            <h1>这套由这些衣服组成</h1>
+            <p>这几件的颜色能接在一起，也能配合这件单品。下单前，再确认尺码和上身效果。</p>
+          </div>
+          <div className="purchase-detail-grid">
+            {outfitItems.map((item, index) => (
+              <figure className={index === 0 ? "purchase-candidate-card" : ""} key={`${item.id}-${index}`}>
+                <img src={item.photo} alt={`${item.color}${item.subtype}`} />
+                <figcaption>
+                  <span>{index === 0 ? "准备买的" : categoryLabels[item.category]}</span>
+                  <strong>{item.color}{item.subtype}</strong>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+          <p className="purchase-boundary purchase-detail-boundary">收到衣服后，再试一次实际颜色、松紧和长度是否合适。</p>
+        </section>
+        <BottomNav current="purchase" purchasePath={purchasePath} />
+      </main>
+    );
+  }
+
+  if (result && view === "purchase-result") {
+    return (
+      <main className="collection-shell purchase-shell purchase-stack-shell">
+        <header className="simple-header purchase-stack-header">
+          <button className="text-button" type="button" onClick={showForm}>返回</button>
+          <div><p>想买</p><strong>搭配结果</strong></div>
+          <span className="header-action-spacer" aria-hidden="true" />
+        </header>
+
+        <section className="collection-content purchase-stack-content">
+          <section className={`purchase-result purchase-result-page verdict-${result.analysis.verdict}`} aria-live="polite">
+            <div className="purchase-result-product">
+              <img src={result.candidate.photo} alt={`${result.candidate.color}${result.candidate.subtype}`} />
+              <div><span>刚刚看的</span><strong>{result.candidate.color}{result.candidate.subtype}</strong></div>
+            </div>
+            <header>
+              <span>{result.analysis.verdict === "preview" ? "先试着搭" : "衣橱给的建议"}</span>
+              <h1>{result.analysis.title}</h1>
+              <p>{result.analysis.summary}</p>
+            </header>
+
+            <div className="purchase-facts">
+              <div><strong>{result.analysis.similar.length}</strong><span>件相近款</span></div>
+              <div><strong>{result.analysis.matchSets.length}</strong><span>套现成搭法</span></div>
+            </div>
+
+            {result.analysis.similar.length > 0 && (
+              <div className="purchase-section">
+                <h2>衣橱里已经有点像的</h2>
+                <div className="purchase-photo-row">
+                  {result.analysis.similar.slice(0, 4).map((item) => (
+                    <figure key={item.id}><img src={item.photo} alt={`${item.color}${item.subtype}`} /><figcaption>{item.color}{item.subtype}</figcaption></figure>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {result.analysis.matchSets.length > 0 ? (
+              <div className="purchase-section">
+                <h2>可以先这样搭</h2>
+                <div className="purchase-match-links">
+                  {result.analysis.matchSets.map((items, index) => (
+                    <button className="purchase-match-link" type="button" key={items.map((item) => item.id).join("-")} onClick={() => showDetail(index)}>
+                      <span className="purchase-match-thumbnails" aria-hidden="true">
+                        {[result.candidate, ...items].slice(0, 3).map((item, itemIndex) => <img src={item.photo} alt="" key={`${item.id}-${itemIndex}`} />)}
+                      </span>
+                      <span className="purchase-match-copy"><strong>穿法 {index + 1}</strong><small>查看这一套</small></span>
+                      <span className="purchase-match-arrow" aria-hidden="true">›</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="purchase-gap">现在还缺能接住它的{result.analysis.missing.map((item) => categoryLabels[item]).join("、")}，暂时搭不出完整的一套。</p>
+            )}
+
+            <p className="purchase-boundary">下单前，记得再确认尺码、上身效果和价格。</p>
+            {added ? (
+              <div className="purchase-added">
+                <strong>已经放进衣橱</strong>
+                <button className="secondary-button" type="button" onClick={() => navigate("/wardrobe")}>去衣橱看看</button>
+              </div>
+            ) : (
+              <button className="secondary-button full" type="button" onClick={addPurchasedItem}>买了，放进衣橱</button>
+            )}
+          </section>
+        </section>
+        <BottomNav current="purchase" purchasePath={purchasePath} />
+      </main>
+    );
   }
 
   return (
@@ -1933,8 +2159,8 @@ function PurchaseScreen({
         </div>
 
         <form className="purchase-form" onSubmit={inspectPurchase}>
-          <label className={`purchase-photo ${photo ? "has-photo" : ""}`}>
-            {photo ? <img src={photo} alt="准备判断的商品" /> : <div><b>＋</b><strong>{photoBusy ? "正在处理照片…" : "拍商品或选择截图"}</strong><small>网店截图、试衣照都可以</small></div>}
+          <label className={`purchase-photo ${draft.photo ? "has-photo" : ""}`}>
+            {draft.photo ? <img src={draft.photo} alt="准备判断的商品" /> : <div><b>＋</b><strong>{photoBusy ? "正在处理照片…" : "拍商品或选择截图"}</strong><small>网店截图、试衣照都可以</small></div>}
             <input type="file" accept="image/*" onChange={pickPhoto} />
           </label>
 
@@ -1942,18 +2168,18 @@ function PurchaseScreen({
             <p className="field-label">这是什么</p>
             <div className="segmented-grid">
               {(Object.keys(categoryLabels) as Category[]).map((item) => (
-                <button className={category === item ? "selected" : ""} type="button" key={item} onClick={() => changeCategory(item)}>{categoryLabels[item]}</button>
+                <button className={draft.category === item ? "selected" : ""} type="button" key={item} onClick={() => changeCategory(item)}>{categoryLabels[item]}</button>
               ))}
             </div>
           </div>
           <div className="two-fields">
             <label>具体类别
-              <select value={subtype} onChange={(event) => { resetPurchaseResult(); setSubtype(event.target.value); }}>
-                {subtypeOptions[category].map((item) => <option key={item}>{item}</option>)}
+              <select value={draft.subtype} onChange={(event) => updateDraft({ subtype: event.target.value })}>
+                {subtypeOptions[draft.category].map((item) => <option key={item}>{item}</option>)}
               </select>
             </label>
             <label>主颜色
-              <select value={color} onChange={(event) => { resetPurchaseResult(); setColor(event.target.value); }}>
+              <select value={draft.color} onChange={(event) => updateDraft({ color: event.target.value })}>
                 {["黑色", "白色", "灰色", "藏青", "蓝色", "卡其", "棕色", "绿色", "红色", "其他"].map((item) => <option key={item}>{item}</option>)}
               </select>
             </label>
@@ -1964,16 +2190,16 @@ function PurchaseScreen({
             <div className="label-section">
               <div className="label-section-heading"><strong>商品标签</strong><span>一张或两张都可以</span></div>
               <div className="label-upload-grid">
-                <label className={careLabelPhoto ? "has-label-photo" : ""}>
-                  {careLabelPhoto ? <img src={careLabelPhoto} alt="水洗标" /> : <><b>＋</b><span>水洗标</span><small>材质和洗护说明</small></>}
+                <label className={draft.careLabelPhoto ? "has-label-photo" : ""}>
+                  {draft.careLabelPhoto ? <img src={draft.careLabelPhoto} alt="水洗标" /> : <><b>＋</b><span>水洗标</span><small>材质和洗护说明</small></>}
                   <input type="file" accept="image/*" onChange={(event) => void pickLabelPhoto(event, "care")} />
                 </label>
-                <label className={hangtagPhoto ? "has-label-photo" : ""}>
-                  {hangtagPhoto ? <img src={hangtagPhoto} alt="购买吊牌" /> : <><b>＋</b><span>购买吊牌</span><small>尺码和商品信息</small></>}
+                <label className={draft.hangtagPhoto ? "has-label-photo" : ""}>
+                  {draft.hangtagPhoto ? <img src={draft.hangtagPhoto} alt="购买吊牌" /> : <><b>＋</b><span>购买吊牌</span><small>尺码和商品信息</small></>}
                   <input type="file" accept="image/*" onChange={(event) => void pickLabelPhoto(event, "hangtag")} />
                 </label>
               </div>
-              {(careLabelPhoto || hangtagPhoto) && (
+              {(draft.careLabelPhoto || draft.hangtagPhoto) && (
                 <button className="label-read-button" type="button" onClick={() => void readLabels()} disabled={labelBusy}>
                   {labelBusy ? `正在读取 ${Math.round(labelProgress * 100)}%` : "读取标签信息"}
                 </button>
@@ -1981,24 +2207,24 @@ function PurchaseScreen({
             </div>
             <div className="two-fields">
               <label>材质
-                <select value={material} onChange={(event) => { resetPurchaseResult(); setMaterial(event.target.value); }}>
+                <select value={draft.material} onChange={(event) => updateDraft({ material: event.target.value })}>
                   {["不知道", "棉", "亚麻", "羊毛", "牛仔", "聚酯纤维", "皮革", "混纺"].map((item) => <option key={item}>{item}</option>)}
                 </select>
               </label>
               <label>厚薄
-                <select value={thickness} onChange={(event) => { resetPurchaseResult(); setThickness(event.target.value); }}>
+                <select value={draft.thickness} onChange={(event) => updateDraft({ thickness: event.target.value })}>
                   {["不知道", "薄", "适中", "厚"].map((item) => <option key={item}>{item}</option>)}
                 </select>
               </label>
             </div>
             <div className="two-fields">
-              <label>尺码<input value={size} onChange={(event) => { resetPurchaseResult(); setSize(event.target.value); }} placeholder="例如：L" /></label>
-              <label>洗护提醒<input value={careNotes} onChange={(event) => { resetPurchaseResult(); setCareNotes(event.target.value); }} placeholder="例如：不可烘干" /></label>
+              <label>尺码<input value={draft.size} onChange={(event) => updateDraft({ size: event.target.value })} placeholder="例如：L" /></label>
+              <label>洗护提醒<input value={draft.careNotes} onChange={(event) => updateDraft({ careNotes: event.target.value })} placeholder="例如：不可烘干" /></label>
             </div>
             <p className="field-label scene-field-label">你打算什么时候穿</p>
             <div className="scene-checks">
               {allScenes.map((item) => (
-                <label key={item}><input type="checkbox" checked={scenes.includes(item)} onChange={() => toggleScene(item)} />{sceneLabels[item]}</label>
+                <label key={item}><input type="checkbox" checked={draft.scenes.includes(item)} onChange={() => toggleScene(item)} />{sceneLabels[item]}</label>
               ))}
             </div>
           </details>
@@ -2006,62 +2232,8 @@ function PurchaseScreen({
           <button className="primary-button full purchase-submit" type="submit" disabled={photoBusy || labelBusy}>看看能不能搭</button>
         </form>
 
-        {result && (
-          <section className={`purchase-result verdict-${result.analysis.verdict}`} aria-live="polite">
-            <header>
-              <span>{result.analysis.verdict === "preview" ? "先试着搭" : "衣橱给的建议"}</span>
-              <h2>{result.analysis.title}</h2>
-              <p>{result.analysis.summary}</p>
-            </header>
-
-            <div className="purchase-facts">
-              <div><strong>{result.analysis.similar.length}</strong><span>件相近款</span></div>
-              <div><strong>{result.analysis.matchSets.length}</strong><span>套现成搭法</span></div>
-            </div>
-
-            {result.analysis.similar.length > 0 && (
-              <div className="purchase-section">
-                <h3>衣橱里已经有点像的</h3>
-                <div className="purchase-photo-row">
-                  {result.analysis.similar.slice(0, 4).map((item) => (
-                    <figure key={item.id}><img src={item.photo} alt={`${item.color}${item.subtype}`} /><figcaption>{item.color}{item.subtype}</figcaption></figure>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {result.analysis.matchSets.length > 0 ? (
-              <div className="purchase-section">
-                <h3>可以先这样搭</h3>
-                <div className="purchase-match-list">
-                  {result.analysis.matchSets.map((items, index) => (
-                    <article key={items.map((item) => item.id).join("-")}>
-                      <span>穿法 {index + 1}</span>
-                      <div>
-                        <figure><img src={result.candidate.photo} alt={`${result.candidate.color}${result.candidate.subtype}`} /><figcaption>想买的</figcaption></figure>
-                        {items.map((item) => <figure key={item.id}><img src={item.photo} alt={`${item.color}${item.subtype}`} /><figcaption>{item.color}{item.subtype}</figcaption></figure>)}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <p className="purchase-gap">现在还缺能接住它的{result.analysis.missing.map((item) => categoryLabels[item]).join("、")}，暂时搭不出完整的一套。</p>
-            )}
-
-            <p className="purchase-boundary">下单前，记得再确认尺码、上身效果和价格。</p>
-            {added ? (
-              <div className="purchase-added">
-                <strong>已经放进衣橱</strong>
-                <button className="secondary-button" type="button" onClick={() => navigate("/wardrobe")}>去衣橱看看</button>
-              </div>
-            ) : (
-              <button className="secondary-button full" type="button" onClick={addPurchasedItem}>买了，放进衣橱</button>
-            )}
-          </section>
-        )}
       </section>
-      <BottomNav current="purchase" />
+      <BottomNav current="purchase" purchasePath={purchasePath} />
     </main>
   );
 }
@@ -2069,9 +2241,11 @@ function PurchaseScreen({
 function LaundryScreen({
   data,
   setData,
+  purchasePath,
 }: {
   data: WardrobeData;
   setData: React.Dispatch<React.SetStateAction<WardrobeData>>;
+  purchasePath: string;
 }) {
   const laundryItems = data.garments.filter(
     (item) => garmentLocation(item) === "laundry" || dirtySockCount(item) > 0,
@@ -2147,7 +2321,7 @@ function LaundryScreen({
           </>
         )}
       </section>
-      <BottomNav current="laundry" />
+      <BottomNav current="laundry" purchasePath={purchasePath} />
     </main>
   );
 }
@@ -2155,9 +2329,11 @@ function LaundryScreen({
 function WardrobeScreen({
   data,
   setData,
+  purchasePath,
 }: {
   data: WardrobeData;
   setData: React.Dispatch<React.SetStateAction<WardrobeData>>;
+  purchasePath: string;
 }) {
   const categoryOrder: Category[] = ["top", "bottom", "outer", "shoes", "socks"];
   const firstWithItems = categoryOrder.find((category) => data.garments.some((item) => item.category === category));
@@ -2363,7 +2539,7 @@ function WardrobeScreen({
           </div>
         )}
       </section>
-      <BottomNav current="wardrobe" />
+      <BottomNav current="wardrobe" purchasePath={purchasePath} />
 
       {selectedItem && (
         <div className="detail-overlay" role="presentation" onMouseDown={(event) => {

@@ -23,6 +23,8 @@ test("keeps the full wardrobe loop behind share-safe hash routes", async () => {
     "/wardrobe/laundry",
     "/wardrobe",
     "/purchase",
+    "/purchase/result",
+    "/purchase/detail",
     "/today",
   ]) {
     assert.match(source, new RegExp(`"${pathname.replaceAll("/", "\\/")}"`), pathname);
@@ -167,4 +169,18 @@ test("provides a real pre-purchase comparison with an honest data threshold", as
   assert.match(source, /等你再添几件常穿的衣服/);
   assert.match(source, /买了，放进衣橱/);
   assert.match(source, /下单前，记得再确认尺码、上身效果和价格/);
+});
+
+test("keeps the purchase journey in an app-style page stack", async () => {
+  const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(source, /lastView: "purchase-result"/);
+  assert.match(source, /lastView: "purchase-detail"/);
+  assert.match(source, /navigate\("\/purchase\/result"\)/);
+  assert.match(source, /navigate\("\/purchase\/detail"\)/);
+  assert.match(source, /purchasePath=\{purchasePath\}/);
+  assert.match(source, /purchase-match-link/);
+  assert.doesNotMatch(source, /querySelector\("\.purchase-result"\)/);
+  assert.match(styles, /\.purchase-stack-header/);
+  assert.match(styles, /\.header-action-spacer/);
 });
