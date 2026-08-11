@@ -79,6 +79,19 @@ test("uses the approved product language without internal product copy", async (
   }
 });
 
+test("keeps the weather and menswear lookbook visual system", async () => {
+  const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+
+  assert.match(source, /function NavIcon/);
+  assert.match(source, /aria-current=\{current === item\.key \? "page" : undefined\}/);
+  assert.match(source, /garment-card category-\$\{item\.category\}/);
+  assert.match(styles, /Weather × menswear lookbook/);
+  assert.match(styles, /grid-template-areas:\s*\n\s*"top bottom"/);
+  assert.match(styles, /font-family: var\(--display\)/);
+  assert.doesNotMatch(styles, /transition\s*:\s*all/);
+});
+
 test("keeps unavailable clothing outside the recommendation pool", async () => {
   const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
   assert.match(source, /item\.state === "ready"/);

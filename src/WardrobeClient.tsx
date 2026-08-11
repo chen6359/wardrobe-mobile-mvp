@@ -1483,8 +1483,38 @@ function ReadyScreen({ garments }: { garments: Garment[] }) {
   );
 }
 
-function BottomNav({ current }: { current: "today" | "laundry" | "wardrobe" | "purchase" | "add" }) {
-  const items: { key: typeof current; label: string; path: string }[] = [
+type BottomNavKey = "today" | "laundry" | "wardrobe" | "purchase" | "add";
+
+function NavIcon({ name }: { name: BottomNavKey }) {
+  const common = {
+    width: 22,
+    height: 22,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+    focusable: false,
+  };
+  if (name === "today") {
+    return <svg {...common}><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4" /></svg>;
+  }
+  if (name === "laundry") {
+    return <svg {...common}><path d="M5 8h14l-1 12H6L5 8Z" /><path d="M8 8V5.5A2.5 2.5 0 0 1 10.5 3h3A2.5 2.5 0 0 1 16 5.5V8M8.5 12v4M12 12v4M15.5 12v4" /></svg>;
+  }
+  if (name === "wardrobe") {
+    return <svg {...common}><path d="M12 5.5a2 2 0 1 0-2-2" /><path d="m12 5.5 8 6.5H4l8-6.5Z" /><path d="M5 12v7h14v-7" /></svg>;
+  }
+  if (name === "purchase") {
+    return <svg {...common}><path d="M4 5h9.5L20 11.5 11.5 20 4 12.5V5Z" /><circle cx="8" cy="9" r="1" /></svg>;
+  }
+  return <svg {...common}><rect x="4" y="4" width="16" height="16" rx="5" /><path d="M12 8v8M8 12h8" /></svg>;
+}
+
+function BottomNav({ current }: { current: BottomNavKey }) {
+  const items: { key: BottomNavKey; label: string; path: string }[] = [
     { key: "today", label: "今天", path: "/today" },
     { key: "laundry", label: "脏衣篓", path: "/wardrobe/laundry" },
     { key: "wardrobe", label: "衣橱", path: "/wardrobe" },
@@ -1499,8 +1529,10 @@ function BottomNav({ current }: { current: "today" | "laundry" | "wardrobe" | "p
           type="button"
           key={item.key}
           onClick={() => navigate(item.path)}
+          aria-current={current === item.key ? "page" : undefined}
         >
-          {item.label}
+          <span className="nav-icon"><NavIcon name={item.key} /></span>
+          <span>{item.label}</span>
         </button>
       ))}
     </nav>
@@ -1632,10 +1664,10 @@ function TodayScreen({
           </section>
         ) : outfit && outfit.items.length > 0 ? (
           <>
-            <div className="recommend-title"><div><p>今天建议穿这套</p><h1>{sceneLabels[scene]}</h1></div><span>首选</span></div>
+            <div className="recommend-title"><div><p>今天建议穿这套</p><h1>{sceneLabels[scene]}</h1></div><span>今日一套</span></div>
             <div className={`outfit-grid items-${outfit.items.length}`}>
               {outfit.items.map((item) => (
-                <figure className="garment-card" key={item.id}>
+                <figure className={`garment-card category-${item.category}`} key={item.id}>
                   <img src={item.photo} alt={`${item.color}${item.subtype}`} />
                   <figcaption><span>{categoryLabels[item.category]}</span><strong>{item.color}{item.subtype}</strong>{item.category === "socks" && <small>干净 {item.cleanCount} / {item.totalCount}</small>}</figcaption>
                 </figure>
