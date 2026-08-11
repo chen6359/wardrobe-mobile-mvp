@@ -32,6 +32,8 @@ test("keeps the full wardrobe loop behind share-safe hash routes", async () => {
 
 test("uses the approved product language without internal product copy", async () => {
   const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
+  const engine = await readFile(new URL("../src/outfit-engine.ts", import.meta.url), "utf8");
+  const visibleCopySources = `${source}\n${engine}`;
   assert.match(source, /今天穿什么，/);
   assert.match(source, /让衣橱帮你想/);
   assert.match(source, /今天建议穿这套/);
@@ -75,7 +77,7 @@ test("uses the approved product language without internal product copy", async (
     "参与推荐",
   ];
   for (const phrase of forbiddenUiPhrases) {
-    assert.doesNotMatch(source, new RegExp(phrase), `界面中不应出现团队语言：${phrase}`);
+    assert.doesNotMatch(visibleCopySources, new RegExp(phrase), `界面中不应出现团队语言：${phrase}`);
   }
 });
 
@@ -134,8 +136,9 @@ test("keeps recent scenes dynamic and filters the wardrobe by category", async (
 
 test("learns from lightweight recommendation feedback", async () => {
   const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
+  const engine = await readFile(new URL("../src/outfit-engine.ts", import.meta.url), "utf8");
   assert.match(source, /feedbackHistory/);
-  assert.match(source, /preferenceAdjustment/);
+  assert.match(engine, /preferenceAdjustment/);
   assert.match(source, /action: "adopted"/);
   assert.match(source, /addFeedback\("swapped"\)/);
   assert.match(source, /addFeedback\("skipped", reason\)/);

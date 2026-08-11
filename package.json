@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "pnpm run build && node --test tests/rendered-html.test.mjs",
+    "test": "pnpm run build && node --test tests/*.test.mjs",
     "lint": "eslint ."
   },
   "dependencies": {

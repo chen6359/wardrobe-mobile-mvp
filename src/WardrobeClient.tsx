@@ -9,6 +9,19 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  buildOutfit,
+  colorsWorkTogether,
+  findBestSingleSwap,
+  type Category,
+  type FeedbackAction,
+  type FeedbackReason,
+  type Garment,
+  type GarmentState,
+  type Outfit,
+  type OutfitFeedback,
+  type Scene,
+} from "./outfit-engine";
 
 export type View =
   | "home"
@@ -20,12 +33,7 @@ export type View =
   | "wardrobe"
   | "laundry"
   | "purchase";
-type Category = "top" | "bottom" | "shoes" | "socks" | "outer";
-type Scene = "work" | "meeting" | "gym" | "casual" | "friends" | "date" | "travel";
-type GarmentState = "ready" | "laundry" | "paused";
 type WearPlacement = "hanger" | "laundry";
-type FeedbackAction = "adopted" | "swapped" | "skipped";
-type FeedbackReason = "color" | "formal" | "casual" | "hot" | "comfort" | "other";
 
 type Profile = {
   city: string;
@@ -34,26 +42,6 @@ type Profile = {
   longitude: number;
   timezone: string;
   preferredScenes: Scene[];
-};
-
-type Garment = {
-  id: string;
-  category: Category;
-  subtype: string;
-  color: string;
-  state: GarmentState;
-  photo: string;
-  material: string;
-  thickness: string;
-  size: string;
-  careNotes: string;
-  labelText: string;
-  careLabelPhoto: string;
-  hangtagPhoto: string;
-  scenes: Scene[];
-  totalCount?: number;
-  cleanCount?: number;
-  createdAt: string;
 };
 
 type Weather = {
@@ -76,28 +64,12 @@ type WearRecord = {
   placements?: Record<string, WearPlacement>;
 };
 
-type OutfitFeedback = {
-  id: string;
-  date: string;
-  scene: Scene;
-  garmentIds: string[];
-  action: FeedbackAction;
-  reason?: FeedbackReason;
-};
-
 type WardrobeData = {
   profile: Profile | null;
   garments: Garment[];
   wearHistory: WearRecord[];
   feedbackHistory: OutfitFeedback[];
   recentScenes: Scene[];
-};
-
-type Outfit = {
-  items: Garment[];
-  missing: string[];
-  limitation: string;
-  reasons: [string, string, string];
 };
 
 const STORAGE_KEY = "wardrobe-mobile-mvp-v1";
@@ -345,136 +317,6 @@ function readiness(garments: Garment[]) {
   return { completed, ready: completed.length === required.length };
 }
 
-function preferenceAdjustment(item: Garment, scene: Scene, history: OutfitFeedback[]) {
-  const formalTypes = ["短袖衬衫", "长袖衬衫", "Polo", "西裤", "皮鞋", "西装外套"];
-  const relaxedTypes = ["T恤", "牛仔裤", "运动裤", "短裤", "运动鞋", "运动袜"];
-  return history.slice(-60).reduce((total, entry) => {
-    if (entry.scene !== scene || !entry.garmentIds.includes(item.id)) return total;
-    if (entry.action === "adopted") return total + 3;
-    if (entry.action === "swapped") return total - 1;
-    let adjustment = -2;
-    if (entry.reason === "formal" && formalTypes.includes(item.subtype)) adjustment -= 2;
-    if (entry.reason === "casual" && relaxedTypes.includes(item.subtype)) adjustment -= 2;
-    if (entry.reason === "hot" && (item.thickness === "厚" || item.category === "outer")) adjustment -= 3;
-    if (entry.reason === "comfort") adjustment -= 2;
-    return total + adjustment;
-  }, 0);
-}
-
-function scoreItem(item: Garment, scene: Scene, temperature: number, history: OutfitFeedback[] = []) {
-  let score = item.scenes.length === 0 ? 4 : item.scenes.includes(scene) ? 14 : 1;
-
-  if (scene === "work" && ["短袖衬衫", "长袖衬衫", "Polo", "西裤", "休闲裤", "皮鞋"].includes(item.subtype)) score += 8;
-  if (scene === "meeting" && ["短袖衬衫", "长袖衬衫", "Polo", "西裤", "皮鞋", "西装外套"].includes(item.subtype)) score += 11;
-  if (scene === "gym" && ["T恤", "运动裤", "短裤", "运动鞋", "运动袜"].includes(item.subtype)) score += 10;
-  if (scene === "casual" && ["T恤", "Polo", "牛仔裤", "休闲裤", "休闲鞋", "运动鞋"].includes(item.subtype)) score += 7;
-  if (scene === "friends" && ["T恤", "Polo", "短袖衬衫", "牛仔裤", "休闲裤", "休闲鞋"].includes(item.subtype)) score += 8;
-  if (scene === "date" && ["Polo", "短袖衬衫", "长袖衬衫", "休闲裤", "西裤", "休闲鞋", "皮鞋"].includes(item.subtype)) score += 9;
-  if (scene === "travel" && ["T恤", "Polo", "运动裤", "休闲裤", "运动鞋", "休闲鞋"].includes(item.subtype)) score += 8;
-
-  if (temperature >= 26 && item.thickness === "薄") score += 7;
-  if (temperature >= 18 && temperature < 26 && item.thickness === "适中") score += 6;
-  if (temperature < 18 && item.thickness === "厚") score += 7;
-  if (temperature >= 24 && ["棉", "亚麻"].includes(item.material)) score += 3;
-  if (temperature < 16 && item.material === "羊毛") score += 4;
-  if (!item.thickness || item.thickness === "不知道") score += 2;
-  return score + preferenceAdjustment(item, scene, history);
-}
-
-function selectBest(
-  items: Garment[],
-  scene: Scene,
-  temperature: number,
-  history: OutfitFeedback[],
-  overrideId?: string,
-) {
-  if (overrideId) {
-    const overridden = items.find((item) => item.id === overrideId);
-    if (overridden) return overridden;
-  }
-  return [...items].sort(
-    (a, b) => scoreItem(b, scene, temperature, history) - scoreItem(a, scene, temperature, history),
-  )[0];
-}
-
-function buildOutfit(
-  garments: Garment[],
-  scene: Scene,
-  weather: Weather,
-  overrides: Partial<Record<Category, string>>,
-  feedbackHistory: OutfitFeedback[],
-): Outfit {
-  const available = garments.filter(
-    (item) => item.state === "ready" && (item.category !== "socks" || (item.cleanCount ?? 0) > 0),
-  );
-  const needOuter = weather.apparentTemperature < 16;
-  const required: Category[] = ["top", "bottom", "shoes", "socks"];
-  if (needOuter) required.push("outer");
-
-  const missing = required
-    .filter((category) => !available.some((item) => item.category === category))
-    .map((category) => categoryLabels[category]);
-
-  if (missing.length > 0) {
-    return {
-      items: [],
-      missing,
-      limitation: "",
-      reasons: ["", "", ""],
-    };
-  }
-
-  const selected = required.map((category) =>
-    selectBest(
-      available.filter((item) => item.category === category),
-      scene,
-      weather.apparentTemperature,
-      feedbackHistory,
-      overrides[category],
-    ),
-  );
-
-  const shoes = selected.find((item) => item.category === "shoes");
-  const counts = required.map(
-    (category) => available.filter((item) => item.category === category).length,
-  );
-  let limitation = "";
-  if (scene === "gym" && shoes?.subtype !== "运动鞋") {
-    limitation = "衣橱里没有已确认的运动鞋，今天仍选了现有鞋中最合适的一双；正式训练前需要确认它的支撑和防滑是否合适。";
-  } else if (counts.every((count) => count === 1)) {
-    limitation = "你现在每一类衣服都只有一件可以选，所以今天先这样穿。以后多添几件，我再帮你换出不同搭法。";
-  }
-
-  const top = selected.find((item) => item.category === "top");
-  const bottom = selected.find((item) => item.category === "bottom");
-  const socks = selected.find((item) => item.category === "socks");
-  const sceneReason =
-    scene === "work"
-      ? "普通办公需要整洁利落，但不必穿得像正式商务宴会。"
-      : scene === "meeting"
-        ? "公司会议比日常办公更正式，今天优先选择线条利落、颜色稳妥的衣服。"
-      : scene === "gym"
-        ? "训练时先保证活动方便，再在现有衣物里尽量保持颜色协调。"
-        : scene === "date"
-          ? "约会更看重整体感，衣服要显得认真，但不需要刻意用力。"
-          : scene === "travel"
-            ? "旅行出行先照顾走动和久坐，再保证照片里看起来整齐。"
-            : scene === "friends"
-              ? "朋友聚会可以放松一些，但上衣、裤子和鞋仍然要有连贯感。"
-              : "日常休闲可以舒服一些，但舒服不等于随便拼在一起。";
-  const weatherReason = `体感约 ${Math.round(weather.apparentTemperature)}°，${top?.thickness && top.thickness !== "不知道" ? `这件${top.thickness}上衣` : "这套的层次"}更适合现在的温度${needOuter ? "，并补上了外套" : ""}。`;
-  const matchReason = top?.color === bottom?.color
-    ? `${top?.color ?? "同色"}上衣和同色下装让整体更统一，${socks?.color ?? "袜子"}袜子连接裤装和鞋，不会突然跳色。`
-    : `${top?.color ?? "上衣"}上衣与${bottom?.color ?? "下装"}下装颜色能接在一起，${socks?.color ?? "袜子"}袜子负责连接裤装和鞋，不会在坐下时突然断开。`;
-
-  return {
-    items: selected.filter(Boolean),
-    missing: [],
-    limitation,
-    reasons: [sceneReason, weatherReason, matchReason],
-  };
-}
-
 function nextUsefulCategory(garments: Garment[]): Category {
   const required: Category[] = ["top", "bottom", "shoes", "socks"];
   const missing = required.find((category) =>
@@ -498,19 +340,6 @@ type PurchaseAnalysis = {
   matchSets: Garment[][];
   missing: Category[];
 };
-
-const neutralColors = ["黑色", "白色", "灰色", "藏青", "卡其", "棕色"];
-const colorPartners: Record<string, string[]> = {
-  蓝色: ["黑色", "白色", "灰色", "藏青", "卡其", "棕色"],
-  绿色: ["黑色", "白色", "灰色", "藏青", "卡其", "棕色"],
-  红色: ["黑色", "白色", "灰色", "藏青", "卡其"],
-};
-
-function colorsWorkTogether(first: string, second: string) {
-  if (first === second) return true;
-  if (neutralColors.includes(first) || neutralColors.includes(second)) return true;
-  return colorPartners[first]?.includes(second) || colorPartners[second]?.includes(first) || false;
-}
 
 function purchasePartners(category: Category): Category[] {
   if (category === "top") return ["bottom", "shoes"];
@@ -800,7 +629,7 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
     : null;
 
   function addFeedback(action: FeedbackAction, reason?: FeedbackReason) {
-    if (!outfit || outfit.items.length === 0) return;
+    if (!outfit || outfit.items.length === 0) return null;
     const feedback: OutfitFeedback = {
       id: crypto.randomUUID(),
       date: new Date().toISOString(),
@@ -813,53 +642,38 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
       ...previous,
       feedbackHistory: [...previous.feedbackHistory, feedback].slice(-200),
     }));
+    return feedback;
   }
 
   function swapOne() {
     if (!outfit || outfit.items.length === 0 || !currentWeather) return;
-    const available = data.garments.filter(
-      (item) => item.state === "ready" && (item.category !== "socks" || (item.cleanCount ?? 0) > 0),
-    );
-    const order: Category[] = ["top", "bottom", "shoes", "socks", "outer"];
-    const category = order.find(
-      (candidate) => available.filter((item) => item.category === candidate).length > 1,
-    );
-    if (!category) {
+    const next = findBestSingleSwap(data.garments, outfit, scene, currentWeather, data.feedbackHistory);
+    if (!next) {
       setNotice("现在每一类都只有一件可以选。再添一件同类衣服，就能试试别的搭法。 ");
       return;
     }
-    const candidates = available
-      .filter((item) => item.category === category)
-      .sort((a, b) => scoreItem(b, scene, currentWeather.apparentTemperature, data.feedbackHistory) - scoreItem(a, scene, currentWeather.apparentTemperature, data.feedbackHistory));
-    const current = outfit.items.find((item) => item.category === category);
-    const index = Math.max(0, candidates.findIndex((item) => item.id === current?.id));
-    const next = candidates[(index + 1) % candidates.length];
     addFeedback("swapped");
-    setOverrides((previous) => ({ ...previous, [category]: next.id }));
-    setNotice(`${categoryLabels[category]}已经换好了。看看这一套是不是更像你。`);
+    setOverrides({ [next.category]: next.garmentId });
+    setNotice(`${categoryLabels[next.category]}已经换好了，其他衣服也重新配过。看看这一套是不是更像你。`);
   }
 
   function rejectOutfit(reason: FeedbackReason) {
     if (!outfit || !currentWeather) return;
-    addFeedback("skipped", reason);
-    const available = data.garments.filter(
-      (item) => item.state === "ready" && (item.category !== "socks" || (item.cleanCount ?? 0) > 0),
+    const feedback = addFeedback("skipped", reason);
+    if (!feedback) return;
+    const next = findBestSingleSwap(
+      data.garments,
+      outfit,
+      scene,
+      currentWeather,
+      [...data.feedbackHistory, feedback],
     );
-    const nextOverrides: Partial<Record<Category, string>> = {};
-    for (const current of outfit.items) {
-      const candidates = available
-        .filter((item) => item.category === current.category)
-        .sort((a, b) => scoreItem(b, scene, currentWeather.apparentTemperature, data.feedbackHistory) - scoreItem(a, scene, currentWeather.apparentTemperature, data.feedbackHistory));
-      if (candidates.length < 2) continue;
-      const index = Math.max(0, candidates.findIndex((item) => item.id === current.id));
-      nextOverrides[current.category] = candidates[(index + 1) % candidates.length].id;
-    }
-    if (Object.keys(nextOverrides).length === 0) {
+    if (!next) {
       setNotice("记下了。现在没有别的衣服可换，下次推荐会避开你不喜欢的方向。 ");
       return;
     }
-    setOverrides(nextOverrides);
-    setNotice("记下了，已经换一套试试。 ");
+    setOverrides({ [next.category]: next.garmentId });
+    setNotice("记下了，已经换一件，并重新配好整套。 ");
   }
 
   function confirmWear() {
