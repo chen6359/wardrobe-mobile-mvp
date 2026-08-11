@@ -10,6 +10,7 @@ const routes: Record<string, View> = {
   "/wardrobe/ready": "ready",
   "/wardrobe": "wardrobe",
   "/wardrobe/laundry": "laundry",
+  "/purchase": "purchase",
   "/wear/status": "wear-status",
   "/today": "today",
 };

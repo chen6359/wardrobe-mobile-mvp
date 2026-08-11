@@ -18,11 +18,14 @@ export type View =
   | "today"
   | "wear-status"
   | "wardrobe"
-  | "laundry";
+  | "laundry"
+  | "purchase";
 type Category = "top" | "bottom" | "shoes" | "socks" | "outer";
 type Scene = "work" | "meeting" | "gym" | "casual" | "friends" | "date" | "travel";
 type GarmentState = "ready" | "laundry" | "paused";
 type WearPlacement = "hanger" | "laundry";
+type FeedbackAction = "adopted" | "swapped" | "skipped";
+type FeedbackReason = "color" | "formal" | "casual" | "hot" | "comfort" | "other";
 
 type Profile = {
   city: string;
@@ -73,10 +76,20 @@ type WearRecord = {
   placements?: Record<string, WearPlacement>;
 };
 
+type OutfitFeedback = {
+  id: string;
+  date: string;
+  scene: Scene;
+  garmentIds: string[];
+  action: FeedbackAction;
+  reason?: FeedbackReason;
+};
+
 type WardrobeData = {
   profile: Profile | null;
   garments: Garment[];
   wearHistory: WearRecord[];
+  feedbackHistory: OutfitFeedback[];
   recentScenes: Scene[];
 };
 
@@ -93,6 +106,7 @@ const EMPTY_DATA: WardrobeData = {
   profile: null,
   garments: [],
   wearHistory: [],
+  feedbackHistory: [],
   recentScenes: ["work", "meeting", "gym"],
 };
 
@@ -138,6 +152,23 @@ function normalizeWardrobeData(value: unknown): WardrobeData {
           : [];
       })
     : [];
+  const feedbackActions: FeedbackAction[] = ["adopted", "swapped", "skipped"];
+  const feedbackReasons: FeedbackReason[] = ["color", "formal", "casual", "hot", "comfort", "other"];
+  const feedbackHistory: OutfitFeedback[] = Array.isArray(candidate.feedbackHistory)
+    ? candidate.feedbackHistory.flatMap((entry) => {
+        const scene = normalizeScene(entry.scene);
+        if (!scene || !feedbackActions.includes(entry.action)) return [];
+        const reason = feedbackReasons.includes(entry.reason as FeedbackReason)
+          ? entry.reason as FeedbackReason
+          : undefined;
+        return [{
+          ...entry,
+          scene,
+          garmentIds: Array.isArray(entry.garmentIds) ? entry.garmentIds : [],
+          reason,
+        }];
+      })
+    : [];
   const preferredScenes = Array.isArray(candidate.profile?.preferredScenes)
     ? candidate.profile.preferredScenes
         .map(normalizeScene)
@@ -156,6 +187,7 @@ function normalizeWardrobeData(value: unknown): WardrobeData {
     profile,
     garments,
     wearHistory,
+    feedbackHistory,
     recentScenes: recentScenes.length > 0
       ? recentScenes
       : (profile?.preferredScenes.slice(0, 3) ?? EMPTY_DATA.recentScenes),
@@ -313,7 +345,23 @@ function readiness(garments: Garment[]) {
   return { completed, ready: completed.length === required.length };
 }
 
-function scoreItem(item: Garment, scene: Scene, temperature: number) {
+function preferenceAdjustment(item: Garment, scene: Scene, history: OutfitFeedback[]) {
+  const formalTypes = ["短袖衬衫", "长袖衬衫", "Polo", "西裤", "皮鞋", "西装外套"];
+  const relaxedTypes = ["T恤", "牛仔裤", "运动裤", "短裤", "运动鞋", "运动袜"];
+  return history.slice(-60).reduce((total, entry) => {
+    if (entry.scene !== scene || !entry.garmentIds.includes(item.id)) return total;
+    if (entry.action === "adopted") return total + 3;
+    if (entry.action === "swapped") return total - 1;
+    let adjustment = -2;
+    if (entry.reason === "formal" && formalTypes.includes(item.subtype)) adjustment -= 2;
+    if (entry.reason === "casual" && relaxedTypes.includes(item.subtype)) adjustment -= 2;
+    if (entry.reason === "hot" && (item.thickness === "厚" || item.category === "outer")) adjustment -= 3;
+    if (entry.reason === "comfort") adjustment -= 2;
+    return total + adjustment;
+  }, 0);
+}
+
+function scoreItem(item: Garment, scene: Scene, temperature: number, history: OutfitFeedback[] = []) {
   let score = item.scenes.length === 0 ? 4 : item.scenes.includes(scene) ? 14 : 1;
 
   if (scene === "work" && ["短袖衬衫", "长袖衬衫", "Polo", "西裤", "休闲裤", "皮鞋"].includes(item.subtype)) score += 8;
@@ -330,16 +378,22 @@ function scoreItem(item: Garment, scene: Scene, temperature: number) {
   if (temperature >= 24 && ["棉", "亚麻"].includes(item.material)) score += 3;
   if (temperature < 16 && item.material === "羊毛") score += 4;
   if (!item.thickness || item.thickness === "不知道") score += 2;
-  return score;
+  return score + preferenceAdjustment(item, scene, history);
 }
 
-function selectBest(items: Garment[], scene: Scene, temperature: number, overrideId?: string) {
+function selectBest(
+  items: Garment[],
+  scene: Scene,
+  temperature: number,
+  history: OutfitFeedback[],
+  overrideId?: string,
+) {
   if (overrideId) {
     const overridden = items.find((item) => item.id === overrideId);
     if (overridden) return overridden;
   }
   return [...items].sort(
-    (a, b) => scoreItem(b, scene, temperature) - scoreItem(a, scene, temperature),
+    (a, b) => scoreItem(b, scene, temperature, history) - scoreItem(a, scene, temperature, history),
   )[0];
 }
 
@@ -348,6 +402,7 @@ function buildOutfit(
   scene: Scene,
   weather: Weather,
   overrides: Partial<Record<Category, string>>,
+  feedbackHistory: OutfitFeedback[],
 ): Outfit {
   const available = garments.filter(
     (item) => item.state === "ready" && (item.category !== "socks" || (item.cleanCount ?? 0) > 0),
@@ -374,6 +429,7 @@ function buildOutfit(
       available.filter((item) => item.category === category),
       scene,
       weather.apparentTemperature,
+      feedbackHistory,
       overrides[category],
     ),
   );
@@ -407,13 +463,128 @@ function buildOutfit(
               ? "朋友聚会可以放松一些，但上衣、裤子和鞋仍然要有连贯感。"
               : "日常休闲可以舒服一些，但舒服不等于随便拼在一起。";
   const weatherReason = `体感约 ${Math.round(weather.apparentTemperature)}°，${top?.thickness && top.thickness !== "不知道" ? `这件${top.thickness}上衣` : "这套的层次"}更适合现在的温度${needOuter ? "，并补上了外套" : ""}。`;
-  const matchReason = `${top?.color ?? "上衣"}与${bottom?.color ?? "下装"}保持主次，${socks?.color ?? "袜子"}负责连接裤装和鞋，不会在坐下时突然断开。`;
+  const matchReason = top?.color === bottom?.color
+    ? `${top?.color ?? "同色"}上衣和同色下装让整体更统一，${socks?.color ?? "袜子"}袜子连接裤装和鞋，不会突然跳色。`
+    : `${top?.color ?? "上衣"}上衣与${bottom?.color ?? "下装"}下装颜色能接在一起，${socks?.color ?? "袜子"}袜子负责连接裤装和鞋，不会在坐下时突然断开。`;
 
   return {
     items: selected.filter(Boolean),
     missing: [],
     limitation,
     reasons: [sceneReason, weatherReason, matchReason],
+  };
+}
+
+function nextUsefulCategory(garments: Garment[]): Category {
+  const required: Category[] = ["top", "bottom", "shoes", "socks"];
+  const missing = required.find((category) =>
+    !garments.some((item) => item.category === category && garmentLocation(item) === "ready"),
+  );
+  if (missing) return missing;
+  const order: Category[] = ["top", "bottom", "shoes", "outer", "socks"];
+  return [...order].sort((a, b) =>
+    garments.filter((item) => item.category === a).length
+      - garments.filter((item) => item.category === b).length,
+  )[0];
+}
+
+type PurchaseVerdict = "preview" | "consider" | "conditional" | "skip";
+
+type PurchaseAnalysis = {
+  verdict: PurchaseVerdict;
+  title: string;
+  summary: string;
+  similar: Garment[];
+  matchSets: Garment[][];
+  missing: Category[];
+};
+
+const neutralColors = ["黑色", "白色", "灰色", "藏青", "卡其", "棕色"];
+const colorPartners: Record<string, string[]> = {
+  蓝色: ["黑色", "白色", "灰色", "藏青", "卡其", "棕色"],
+  绿色: ["黑色", "白色", "灰色", "藏青", "卡其", "棕色"],
+  红色: ["黑色", "白色", "灰色", "藏青", "卡其"],
+};
+
+function colorsWorkTogether(first: string, second: string) {
+  if (first === second) return true;
+  if (neutralColors.includes(first) || neutralColors.includes(second)) return true;
+  return colorPartners[first]?.includes(second) || colorPartners[second]?.includes(first) || false;
+}
+
+function purchasePartners(category: Category): Category[] {
+  if (category === "top") return ["bottom", "shoes"];
+  if (category === "bottom") return ["top", "shoes"];
+  if (category === "shoes") return ["top", "bottom"];
+  if (category === "outer") return ["top", "bottom", "shoes"];
+  return ["bottom", "shoes"];
+}
+
+function analyzePurchase(candidate: Garment, garments: Garment[]): PurchaseAnalysis {
+  const similar = garments.filter((item) =>
+    item.category === candidate.category
+      && (item.subtype === candidate.subtype || item.color === candidate.color),
+  );
+  const usableForMatching = garments.filter((item) => item.state !== "paused");
+  const partnerCategories = purchasePartners(candidate.category);
+  const pools = partnerCategories.map((category) =>
+    usableForMatching.filter((item) =>
+      item.category === category && colorsWorkTogether(candidate.color, item.color),
+    ),
+  );
+  const missing = partnerCategories.filter((_, index) => pools[index].length === 0);
+  const matchSets: Garment[][] = [];
+  if (missing.length === 0) {
+    for (let index = 0; index < 3; index += 1) {
+      const set = pools.map((pool, poolIndex) => pool[(index + poolIndex) % pool.length]);
+      const signature = set.map((item) => item.id).join("-");
+      if (!matchSets.some((items) => items.map((item) => item.id).join("-") === signature)) {
+        matchSets.push(set);
+      }
+    }
+  }
+
+  if (garments.length < 15) {
+    return {
+      verdict: "preview",
+      title: matchSets.length > 0 ? "先看看这些穿法" : "先别急着买",
+      summary: matchSets.length > 0
+        ? "它已经能和现有衣服搭起来。等你再添几件常穿的衣服，我再给你更明确的建议。"
+        : "现在还凑不出完整的一套。先看看缺什么，再决定要不要下单。",
+      similar,
+      matchSets,
+      missing,
+    };
+  }
+  if (similar.length >= 2 && matchSets.length < 2) {
+    return {
+      verdict: "skip",
+      title: "建议先不买",
+      summary: "相近的衣服已经不少，它能带来的新穿法又比较有限。",
+      similar,
+      matchSets,
+      missing,
+    };
+  }
+  if (similar.length === 0 && matchSets.length >= 3) {
+    return {
+      verdict: "consider",
+      title: "值得考虑",
+      summary: "衣橱里没有明显重复，而且能接上多套现有衣服。",
+      similar,
+      matchSets,
+      missing,
+    };
+  }
+  return {
+    verdict: "conditional",
+    title: "有条件地买",
+    summary: similar.length > 0
+      ? "有相近款，但仍能接上现有衣服。确认版型和价格合适后再决定。"
+      : "重复不明显，但现在能确认的搭法还不多。确认你会常穿再决定。",
+    similar,
+    matchSets,
+    missing,
   };
 }
 
@@ -619,10 +790,30 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
     return <LaundryScreen data={data} setData={setData} />;
   }
 
+  if (actualView === "purchase") {
+    return <PurchaseScreen data={data} setData={setData} />;
+  }
+
   const currentWeather = weather;
   const outfit = currentWeather
-    ? buildOutfit(data.garments, scene, currentWeather, overrides)
+    ? buildOutfit(data.garments, scene, currentWeather, overrides, data.feedbackHistory)
     : null;
+
+  function addFeedback(action: FeedbackAction, reason?: FeedbackReason) {
+    if (!outfit || outfit.items.length === 0) return;
+    const feedback: OutfitFeedback = {
+      id: crypto.randomUUID(),
+      date: new Date().toISOString(),
+      scene,
+      garmentIds: outfit.items.map((item) => item.id),
+      action,
+      reason,
+    };
+    setData((previous) => ({
+      ...previous,
+      feedbackHistory: [...previous.feedbackHistory, feedback].slice(-200),
+    }));
+  }
 
   function swapOne() {
     if (!outfit || outfit.items.length === 0 || !currentWeather) return;
@@ -639,12 +830,36 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
     }
     const candidates = available
       .filter((item) => item.category === category)
-      .sort((a, b) => scoreItem(b, scene, currentWeather.apparentTemperature) - scoreItem(a, scene, currentWeather.apparentTemperature));
+      .sort((a, b) => scoreItem(b, scene, currentWeather.apparentTemperature, data.feedbackHistory) - scoreItem(a, scene, currentWeather.apparentTemperature, data.feedbackHistory));
     const current = outfit.items.find((item) => item.category === category);
     const index = Math.max(0, candidates.findIndex((item) => item.id === current?.id));
     const next = candidates[(index + 1) % candidates.length];
+    addFeedback("swapped");
     setOverrides((previous) => ({ ...previous, [category]: next.id }));
     setNotice(`${categoryLabels[category]}已经换好了。看看这一套是不是更像你。`);
+  }
+
+  function rejectOutfit(reason: FeedbackReason) {
+    if (!outfit || !currentWeather) return;
+    addFeedback("skipped", reason);
+    const available = data.garments.filter(
+      (item) => item.state === "ready" && (item.category !== "socks" || (item.cleanCount ?? 0) > 0),
+    );
+    const nextOverrides: Partial<Record<Category, string>> = {};
+    for (const current of outfit.items) {
+      const candidates = available
+        .filter((item) => item.category === current.category)
+        .sort((a, b) => scoreItem(b, scene, currentWeather.apparentTemperature, data.feedbackHistory) - scoreItem(a, scene, currentWeather.apparentTemperature, data.feedbackHistory));
+      if (candidates.length < 2) continue;
+      const index = Math.max(0, candidates.findIndex((item) => item.id === current.id));
+      nextOverrides[current.category] = candidates[(index + 1) % candidates.length].id;
+    }
+    if (Object.keys(nextOverrides).length === 0) {
+      setNotice("记下了。现在没有别的衣服可换，下次推荐会避开你不喜欢的方向。 ");
+      return;
+    }
+    setOverrides(nextOverrides);
+    setNotice("记下了，已经换一套试试。 ");
   }
 
   function confirmWear() {
@@ -658,9 +873,17 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
       temperature: currentWeather.temperature,
       needsSorting: true,
     };
+    const feedback: OutfitFeedback = {
+      id: crypto.randomUUID(),
+      date: new Date().toISOString(),
+      scene,
+      garmentIds: record.garmentIds,
+      action: "adopted",
+    };
     setData((previous) => ({
       ...previous,
       wearHistory: [...previous.wearHistory, record],
+      feedbackHistory: [...previous.feedbackHistory, feedback].slice(-200),
     }));
     setWorn(true);
     setNotice("");
@@ -685,6 +908,7 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
       outfit={outfit}
       notice={notice}
       swapOne={swapOne}
+      rejectOutfit={rejectOutfit}
       confirmWear={confirmWear}
       worn={worn}
     />
@@ -725,15 +949,16 @@ function StartScreen({
     const timer = window.setTimeout(async () => {
       setSearchStatus("searching");
       setNotice("");
+      const localOptions: CityOption[] = Object.entries(knownCities)
+        .filter(([name]) => name.includes(trimmed) || trimmed.includes(name))
+        .map(([name, location]) => ({
+          id: `known-${name}`,
+          city: name,
+          ...location,
+          detail: location.country,
+        }));
+      if (localOptions.length > 0) setCityOptions(localOptions);
       try {
-        const localOptions: CityOption[] = Object.entries(knownCities)
-          .filter(([name]) => name.includes(trimmed) || trimmed.includes(name))
-          .map(([name, location]) => ({
-            id: `known-${name}`,
-            city: name,
-            ...location,
-            detail: location.country,
-          }));
         async function search(name: string) {
           const params = new URLSearchParams({ name, count: "6", language: "zh", format: "json" });
           const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?${params}`, {
@@ -763,8 +988,8 @@ function StartScreen({
         setSearchStatus("idle");
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
-          setCityOptions([]);
-          setSearchStatus("failed");
+          setCityOptions(localOptions);
+          setSearchStatus(localOptions.length > 0 ? "idle" : "failed");
         }
       }
     }, 400);
@@ -945,7 +1170,11 @@ function AddScreen({
   const [photoBusy, setPhotoBusy] = useState(false);
   const [labelBusy, setLabelBusy] = useState(false);
   const [labelProgress, setLabelProgress] = useState(0);
+  const [lastAdded, setLastAdded] = useState<Garment | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const progress = readiness(data.garments);
+  const suggestedCategory = nextUsefulCategory(data.garments);
 
   function changeCategory(next: Category) {
     setCategory(next);
@@ -955,6 +1184,7 @@ function AddScreen({
   async function pickPhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
+    setLastAdded(null);
     setPhotoBusy(true);
     setMessage("");
     try {
@@ -1042,18 +1272,31 @@ function AddScreen({
     };
     const nextGarments = [...data.garments, garment];
     setData((previous) => ({ ...previous, garments: nextGarments }));
-    if (readiness(nextGarments).ready) {
-      navigate("/wardrobe/ready");
-      return;
-    }
+    setLastAdded(garment);
     setPhoto("");
+    if (photoInputRef.current) photoInputRef.current.value = "";
     setCareLabelPhoto("");
     setHangtagPhoto("");
     setLabelText("");
     setSize("");
     setCareNotes("");
-    setMessage(`${color}${subtype}已经收好。再添一件没打勾的衣服，就能看到第一套。`);
+    setMessage(`${color}${subtype}已经放进衣橱。`);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function continueSameKind() {
+    setLastAdded(null);
+    setMessage("照片拍好后，刚才选过的信息会继续保留。 ");
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.setTimeout(() => photoInputRef.current?.click(), 350);
+  }
+
+  function changeToSuggestedKind() {
+    const next = nextUsefulCategory(data.garments);
+    changeCategory(next);
+    setLastAdded(null);
+    setMessage(`接下来可以加${categoryLabels[next]}，其他信息按这件衣服重新选。`);
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   return (
@@ -1068,6 +1311,10 @@ function AddScreen({
       </header>
 
       <section className="form-content">
+        <div className="entry-intro">
+          <h1>先加最近常穿的</h1>
+          <p>不用一次整理完整个衣柜。相似的衣服可以连续拍，刚选过的信息会保留。</p>
+        </div>
         <div className="progress-copy">
           <p>{progress.completed.length === 4 ? "已经可以开始搭配" : `第一套还差 ${4 - progress.completed.length} 样`}</p>
           <strong>{progress.completed.length} / 4</strong>
@@ -1081,10 +1328,10 @@ function AddScreen({
           ))}
         </div>
 
-        <form className="garment-form" onSubmit={submit}>
+        <form className="garment-form" onSubmit={submit} ref={formRef}>
           <label className={`photo-picker ${photo ? "has-photo" : ""}`}>
             {photo ? <img src={photo} alt="准备添加的衣服" /> : <div><b>＋</b><span>{photoBusy ? "正在处理照片…" : "拍照或从相册选择"}</span><small>平铺或挂起来拍，更容易看清颜色</small></div>}
-            <input type="file" accept="image/*" capture="environment" onChange={pickPhoto} />
+            <input ref={photoInputRef} type="file" accept="image/*" onChange={pickPhoto} />
           </label>
 
           <div className="field-group">
@@ -1186,7 +1433,25 @@ function AddScreen({
           </details>
 
           {message && <p className="form-message" role="status">{message}</p>}
-          <button className="primary-button full" type="submit" disabled={photoBusy || labelBusy}>放进我的衣橱</button>
+          {lastAdded ? (
+            <section className="continue-entry-card" aria-live="polite">
+              <div className="continue-entry-photo"><img src={lastAdded.photo} alt={`${lastAdded.color}${lastAdded.subtype}`} /></div>
+              <div>
+                <p>{progress.ready ? "已经够一套了" : `下一件先加${categoryLabels[suggestedCategory]}`}</p>
+                <h2>{progress.ready ? "现在就能看今天怎么穿" : "再添一件，就更接近第一套"}</h2>
+              </div>
+              <div className="continue-entry-actions">
+                <button className="secondary-button" type="button" onClick={continueSameKind}>继续拍同类</button>
+                {progress.ready ? (
+                  <button className="primary-button" type="button" onClick={() => navigate("/today")}>看今天穿什么</button>
+                ) : (
+                  <button className="primary-button" type="button" onClick={changeToSuggestedKind}>换成{categoryLabels[suggestedCategory]}</button>
+                )}
+              </div>
+            </section>
+          ) : (
+            <button className="primary-button full" type="submit" disabled={photoBusy || labelBusy}>放进我的衣橱</button>
+          )}
         </form>
       </section>
     </main>
@@ -1218,11 +1483,12 @@ function ReadyScreen({ garments }: { garments: Garment[] }) {
   );
 }
 
-function BottomNav({ current }: { current: "today" | "laundry" | "wardrobe" | "add" }) {
+function BottomNav({ current }: { current: "today" | "laundry" | "wardrobe" | "purchase" | "add" }) {
   const items: { key: typeof current; label: string; path: string }[] = [
     { key: "today", label: "今天", path: "/today" },
     { key: "laundry", label: "脏衣篓", path: "/wardrobe/laundry" },
     { key: "wardrobe", label: "衣橱", path: "/wardrobe" },
+    { key: "purchase", label: "想买", path: "/purchase" },
     { key: "add", label: "添加", path: "/wardrobe/add" },
   ];
   return (
@@ -1251,6 +1517,7 @@ function TodayScreen({
   outfit,
   notice,
   swapOne,
+  rejectOutfit,
   confirmWear,
   worn,
 }: {
@@ -1263,13 +1530,16 @@ function TodayScreen({
   outfit: Outfit | null;
   notice: string;
   swapOne: () => void;
+  rejectOutfit: (reason: FeedbackReason) => void;
   confirmWear: () => void;
   worn: boolean;
 }) {
   const [manualTemp, setManualTemp] = useState("22");
   const [manualCondition, setManualCondition] = useState("1");
   const [scenePickerOpen, setScenePickerOpen] = useState(false);
+  const [feedbackPickerOpen, setFeedbackPickerOpen] = useState(false);
   const sceneCloseRef = useRef<HTMLButtonElement>(null);
+  const feedbackCloseRef = useRef<HTMLButtonElement>(null);
   const today = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date());
 
   useEffect(() => {
@@ -1281,6 +1551,16 @@ function TodayScreen({
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [scenePickerOpen]);
+
+  useEffect(() => {
+    if (!feedbackPickerOpen) return;
+    feedbackCloseRef.current?.focus();
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setFeedbackPickerOpen(false);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [feedbackPickerOpen]);
 
   function chooseScene(next: Scene) {
     setScene(next);
@@ -1373,6 +1653,7 @@ function TodayScreen({
               <button className="secondary-button" type="button" onClick={swapOne}>换一件</button>
               <button className="primary-button" type="button" onClick={confirmWear}>今天穿这套</button>
             </div>
+            <button className="feedback-trigger" type="button" onClick={() => setFeedbackPickerOpen(true)}>这套不合适</button>
           </>
         ) : null}
 
@@ -1397,6 +1678,37 @@ function TodayScreen({
                   <span><strong>{sceneLabels[item]}</strong><small>{sceneDescriptions[item]}</small></span>
                   <b aria-hidden="true">{scene === item ? "✓" : "›"}</b>
                 </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {feedbackPickerOpen && (
+        <div className="scene-overlay" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setFeedbackPickerOpen(false);
+        }}>
+          <section className="scene-sheet feedback-sheet" role="dialog" aria-modal="true" aria-labelledby="feedback-sheet-title">
+            <header>
+              <div>
+                <p>说一项就够了</p>
+                <h2 id="feedback-sheet-title">哪一点不合适？</h2>
+              </div>
+              <button ref={feedbackCloseRef} type="button" onClick={() => setFeedbackPickerOpen(false)} aria-label="关闭评价">×</button>
+            </header>
+            <div className="feedback-reasons">
+              {([
+                ["color", "颜色不喜欢"],
+                ["formal", "太正式"],
+                ["casual", "太休闲"],
+                ["hot", "今天太热"],
+                ["comfort", "穿着不舒服"],
+                ["other", "其他"],
+              ] as [FeedbackReason, string][]).map(([reason, label]) => (
+                <button type="button" key={reason} onClick={() => {
+                  rejectOutfit(reason);
+                  setFeedbackPickerOpen(false);
+                }}>{label}</button>
               ))}
             </div>
           </section>
@@ -1622,6 +1934,292 @@ function WearStatusScreen({
   );
 }
 
+function PurchaseScreen({
+  data,
+  setData,
+}: {
+  data: WardrobeData;
+  setData: React.Dispatch<React.SetStateAction<WardrobeData>>;
+}) {
+  const [category, setCategory] = useState<Category>("top");
+  const [subtype, setSubtype] = useState(subtypeOptions.top[0]);
+  const [color, setColor] = useState("黑色");
+  const [photo, setPhoto] = useState("");
+  const [material, setMaterial] = useState("不知道");
+  const [thickness, setThickness] = useState("不知道");
+  const [size, setSize] = useState("");
+  const [careNotes, setCareNotes] = useState("");
+  const [labelText, setLabelText] = useState("");
+  const [careLabelPhoto, setCareLabelPhoto] = useState("");
+  const [hangtagPhoto, setHangtagPhoto] = useState("");
+  const [scenes, setScenes] = useState<Scene[]>([]);
+  const [message, setMessage] = useState("");
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [labelBusy, setLabelBusy] = useState(false);
+  const [labelProgress, setLabelProgress] = useState(0);
+  const [result, setResult] = useState<{ candidate: Garment; analysis: PurchaseAnalysis } | null>(null);
+  const [added, setAdded] = useState(false);
+
+  function resetPurchaseResult() {
+    setResult(null);
+    setAdded(false);
+  }
+
+  function changeCategory(next: Category) {
+    resetPurchaseResult();
+    setCategory(next);
+    setSubtype(subtypeOptions[next][0]);
+  }
+
+  async function pickPhoto(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    resetPurchaseResult();
+    setPhotoBusy(true);
+    setMessage("");
+    try {
+      setPhoto(await compressImage(file));
+    } catch {
+      setMessage("这张照片没有读取成功，请换一张再试。 ");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
+  async function pickLabelPhoto(event: ChangeEvent<HTMLInputElement>, kind: "care" | "hangtag") {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    resetPurchaseResult();
+    try {
+      const image = await compressImage(file, 1200, 0.72);
+      if (kind === "care") setCareLabelPhoto(image);
+      else setHangtagPhoto(image);
+    } catch {
+      setMessage("这张标签照片没有读取成功，请换一张再试。 ");
+    }
+  }
+
+  async function readLabels() {
+    const images = [careLabelPhoto, hangtagPhoto].filter(Boolean);
+    if (images.length === 0) return;
+    setLabelBusy(true);
+    setLabelProgress(0);
+    setMessage("正在读取标签，第一次会多等一会儿…");
+    try {
+      const text = await recognizeLabels(images, setLabelProgress);
+      const details = readLabelDetails(text);
+      setLabelText(text.trim());
+      if (details.material) setMaterial(details.material);
+      if (details.size) setSize(details.size);
+      if (details.careNotes) setCareNotes(details.careNotes);
+      setMessage("标签读好了，请检查并修改不准确的地方。 ");
+    } catch {
+      setMessage("标签文字没有读取成功，照片已经保留。 ");
+    } finally {
+      setLabelBusy(false);
+      setLabelProgress(0);
+    }
+  }
+
+  function toggleScene(value: Scene) {
+    resetPurchaseResult();
+    setScenes((previous) =>
+      previous.includes(value) ? previous.filter((item) => item !== value) : [...previous, value],
+    );
+  }
+
+  function inspectPurchase(event: FormEvent) {
+    event.preventDefault();
+    if (!photo) {
+      setMessage("请先拍下商品，或从相册选择商品截图。 ");
+      return;
+    }
+    const candidate: Garment = {
+      id: "purchase-preview",
+      category,
+      subtype,
+      color,
+      state: "ready",
+      photo,
+      material,
+      thickness,
+      size,
+      careNotes,
+      labelText,
+      careLabelPhoto,
+      hangtagPhoto,
+      scenes,
+      totalCount: category === "socks" ? 1 : undefined,
+      cleanCount: category === "socks" ? 1 : undefined,
+      createdAt: new Date().toISOString(),
+    };
+    setResult({ candidate, analysis: analyzePurchase(candidate, data.garments) });
+    setMessage("");
+    window.setTimeout(() => document.querySelector(".purchase-result")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  }
+
+  function addPurchasedItem() {
+    if (!result) return;
+    const garment: Garment = {
+      ...result.candidate,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+    };
+    setData((previous) => ({ ...previous, garments: [...previous.garments, garment] }));
+    setAdded(true);
+  }
+
+  return (
+    <main className="collection-shell purchase-shell">
+      <header className="collection-header purchase-header">
+        <div>
+          <p>买之前先问衣橱</p>
+          <h1>想买</h1>
+        </div>
+        <button type="button" onClick={() => navigate("/wardrobe")}>看衣橱</button>
+      </header>
+
+      <section className="collection-content purchase-content">
+        <div className="purchase-intro">
+          <span>先别急着下单</span>
+          <h2>看看它能不能融进衣橱</h2>
+          <p>拍张商品图，看看衣橱里有没有相近款，还能和哪些衣服搭。</p>
+        </div>
+
+        <form className="purchase-form" onSubmit={inspectPurchase}>
+          <label className={`purchase-photo ${photo ? "has-photo" : ""}`}>
+            {photo ? <img src={photo} alt="准备判断的商品" /> : <div><b>＋</b><strong>{photoBusy ? "正在处理照片…" : "拍商品或选择截图"}</strong><small>网店截图、试衣照都可以</small></div>}
+            <input type="file" accept="image/*" onChange={pickPhoto} />
+          </label>
+
+          <div className="field-group">
+            <p className="field-label">这是什么</p>
+            <div className="segmented-grid">
+              {(Object.keys(categoryLabels) as Category[]).map((item) => (
+                <button className={category === item ? "selected" : ""} type="button" key={item} onClick={() => changeCategory(item)}>{categoryLabels[item]}</button>
+              ))}
+            </div>
+          </div>
+          <div className="two-fields">
+            <label>具体类别
+              <select value={subtype} onChange={(event) => { resetPurchaseResult(); setSubtype(event.target.value); }}>
+                {subtypeOptions[category].map((item) => <option key={item}>{item}</option>)}
+              </select>
+            </label>
+            <label>主颜色
+              <select value={color} onChange={(event) => { resetPurchaseResult(); setColor(event.target.value); }}>
+                {["黑色", "白色", "灰色", "藏青", "蓝色", "卡其", "棕色", "绿色", "红色", "其他"].map((item) => <option key={item}>{item}</option>)}
+              </select>
+            </label>
+          </div>
+
+          <details className="optional-fields purchase-details">
+            <summary>有标签或商品信息 <span>选填</span></summary>
+            <div className="label-section">
+              <div className="label-section-heading"><strong>商品标签</strong><span>一张或两张都可以</span></div>
+              <div className="label-upload-grid">
+                <label className={careLabelPhoto ? "has-label-photo" : ""}>
+                  {careLabelPhoto ? <img src={careLabelPhoto} alt="水洗标" /> : <><b>＋</b><span>水洗标</span><small>材质和洗护说明</small></>}
+                  <input type="file" accept="image/*" onChange={(event) => void pickLabelPhoto(event, "care")} />
+                </label>
+                <label className={hangtagPhoto ? "has-label-photo" : ""}>
+                  {hangtagPhoto ? <img src={hangtagPhoto} alt="购买吊牌" /> : <><b>＋</b><span>购买吊牌</span><small>尺码和商品信息</small></>}
+                  <input type="file" accept="image/*" onChange={(event) => void pickLabelPhoto(event, "hangtag")} />
+                </label>
+              </div>
+              {(careLabelPhoto || hangtagPhoto) && (
+                <button className="label-read-button" type="button" onClick={() => void readLabels()} disabled={labelBusy}>
+                  {labelBusy ? `正在读取 ${Math.round(labelProgress * 100)}%` : "读取标签信息"}
+                </button>
+              )}
+            </div>
+            <div className="two-fields">
+              <label>材质
+                <select value={material} onChange={(event) => { resetPurchaseResult(); setMaterial(event.target.value); }}>
+                  {["不知道", "棉", "亚麻", "羊毛", "牛仔", "聚酯纤维", "皮革", "混纺"].map((item) => <option key={item}>{item}</option>)}
+                </select>
+              </label>
+              <label>厚薄
+                <select value={thickness} onChange={(event) => { resetPurchaseResult(); setThickness(event.target.value); }}>
+                  {["不知道", "薄", "适中", "厚"].map((item) => <option key={item}>{item}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className="two-fields">
+              <label>尺码<input value={size} onChange={(event) => { resetPurchaseResult(); setSize(event.target.value); }} placeholder="例如：L" /></label>
+              <label>洗护提醒<input value={careNotes} onChange={(event) => { resetPurchaseResult(); setCareNotes(event.target.value); }} placeholder="例如：不可烘干" /></label>
+            </div>
+            <p className="field-label scene-field-label">你打算什么时候穿</p>
+            <div className="scene-checks">
+              {allScenes.map((item) => (
+                <label key={item}><input type="checkbox" checked={scenes.includes(item)} onChange={() => toggleScene(item)} />{sceneLabels[item]}</label>
+              ))}
+            </div>
+          </details>
+          {message && <p className="form-message" role="status">{message}</p>}
+          <button className="primary-button full purchase-submit" type="submit" disabled={photoBusy || labelBusy}>看看能不能搭</button>
+        </form>
+
+        {result && (
+          <section className={`purchase-result verdict-${result.analysis.verdict}`} aria-live="polite">
+            <header>
+              <span>{result.analysis.verdict === "preview" ? "先试着搭" : "衣橱给的建议"}</span>
+              <h2>{result.analysis.title}</h2>
+              <p>{result.analysis.summary}</p>
+            </header>
+
+            <div className="purchase-facts">
+              <div><strong>{result.analysis.similar.length}</strong><span>件相近款</span></div>
+              <div><strong>{result.analysis.matchSets.length}</strong><span>套现成搭法</span></div>
+            </div>
+
+            {result.analysis.similar.length > 0 && (
+              <div className="purchase-section">
+                <h3>衣橱里已经有点像的</h3>
+                <div className="purchase-photo-row">
+                  {result.analysis.similar.slice(0, 4).map((item) => (
+                    <figure key={item.id}><img src={item.photo} alt={`${item.color}${item.subtype}`} /><figcaption>{item.color}{item.subtype}</figcaption></figure>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {result.analysis.matchSets.length > 0 ? (
+              <div className="purchase-section">
+                <h3>可以先这样搭</h3>
+                <div className="purchase-match-list">
+                  {result.analysis.matchSets.map((items, index) => (
+                    <article key={items.map((item) => item.id).join("-")}>
+                      <span>穿法 {index + 1}</span>
+                      <div>
+                        <figure><img src={result.candidate.photo} alt={`${result.candidate.color}${result.candidate.subtype}`} /><figcaption>想买的</figcaption></figure>
+                        {items.map((item) => <figure key={item.id}><img src={item.photo} alt={`${item.color}${item.subtype}`} /><figcaption>{item.color}{item.subtype}</figcaption></figure>)}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="purchase-gap">现在还缺能接住它的{result.analysis.missing.map((item) => categoryLabels[item]).join("、")}，暂时搭不出完整的一套。</p>
+            )}
+
+            <p className="purchase-boundary">下单前，记得再确认尺码、上身效果和价格。</p>
+            {added ? (
+              <div className="purchase-added">
+                <strong>已经放进衣橱</strong>
+                <button className="secondary-button" type="button" onClick={() => navigate("/wardrobe")}>去衣橱看看</button>
+              </div>
+            ) : (
+              <button className="secondary-button full" type="button" onClick={addPurchasedItem}>买了，放进衣橱</button>
+            )}
+          </section>
+        )}
+      </section>
+      <BottomNav current="purchase" />
+    </main>
+  );
+}
+
 function LaundryScreen({
   data,
   setData,
@@ -1679,7 +2277,7 @@ function LaundryScreen({
                         ? `${Math.max(1, dirtySockCount(item))} 双待洗`
                         : item.careNotes
                           ? `洗护：${item.careNotes}`
-                          : "洗好前不会参与推荐"}
+                          : "洗好前不会再选它"}
                     </small>
                   </span>
                   <input

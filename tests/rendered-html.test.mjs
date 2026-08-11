@@ -22,6 +22,7 @@ test("keeps the full wardrobe loop behind share-safe hash routes", async () => {
     "/wear/status",
     "/wardrobe/laundry",
     "/wardrobe",
+    "/purchase",
     "/today",
   ]) {
     assert.match(source, new RegExp(`"${pathname.replaceAll("/", "\\/")}"`), pathname);
@@ -62,6 +63,16 @@ test("uses the approved product language without internal product copy", async (
     "候选组合",
     "验收",
     "维修中",
+    "需求说明",
+    "数据不足",
+    "数据门槛",
+    "判断逻辑",
+    "反馈记录",
+    "个性化",
+    "推荐池",
+    "衣橱判断",
+    "暂时不替你判断",
+    "参与推荐",
   ];
   for (const phrase of forbiddenUiPhrases) {
     assert.doesNotMatch(source, new RegExp(phrase), `界面中不应出现团队语言：${phrase}`);
@@ -106,4 +117,36 @@ test("keeps recent scenes dynamic and filters the wardrobe by category", async (
   assert.match(source, /visibleItems = data\.garments\.filter/);
   assert.match(source, /data-garment-category/);
   assert.match(source, /保存修改/);
+});
+
+test("learns from lightweight recommendation feedback", async () => {
+  const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
+  assert.match(source, /feedbackHistory/);
+  assert.match(source, /preferenceAdjustment/);
+  assert.match(source, /action: "adopted"/);
+  assert.match(source, /addFeedback\("swapped"\)/);
+  assert.match(source, /addFeedback\("skipped", reason\)/);
+  assert.match(source, /这套不合适/);
+  assert.match(source, /颜色不喜欢/);
+  assert.match(source, /穿着不舒服/);
+});
+
+test("keeps garment entry continuous without forcing a page change", async () => {
+  const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
+  assert.match(source, /nextUsefulCategory/);
+  assert.match(source, /继续拍同类/);
+  assert.match(source, /刚才选过的信息会继续保留/);
+  assert.doesNotMatch(source, /if \(readiness\(nextGarments\)\.ready\) \{\s*navigate\("\/wardrobe\/ready"\)/);
+});
+
+test("provides a real pre-purchase comparison with an honest data threshold", async () => {
+  const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
+  assert.match(source, /analyzePurchase/);
+  assert.match(source, /garments\.length < 15/);
+  assert.match(source, /item\.state !== "paused"/);
+  assert.match(source, /建议先不买/);
+  assert.match(source, /值得考虑/);
+  assert.match(source, /等你再添几件常穿的衣服/);
+  assert.match(source, /买了，放进衣橱/);
+  assert.match(source, /下单前，记得再确认尺码、上身效果和价格/);
 });
