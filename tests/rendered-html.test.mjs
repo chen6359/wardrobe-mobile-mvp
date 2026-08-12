@@ -112,10 +112,16 @@ test("keeps unavailable clothing outside the recommendation pool", async () => {
 test("uses explicit real city selection and optional device location", async () => {
   const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
   assert.match(source, /geocoding-api\.open-meteo\.com\/v1\/search/);
+  assert.match(source, /nominatim\.openstreetmap\.org\/search/);
   assert.match(source, /count: "6"/);
+  assert.match(source, /format: "jsonv2"/);
+  assert.match(source, /window\.sessionStorage\.setItem\(GEOCODING_CACHE_KEY/);
+  assert.match(source, /OpenStreetMap contributors/);
+  assert.match(source, /搜索城市或区县，例如：西城区/);
+  assert.match(source, /option\.city === requestedAreaName/);
   assert.match(source, /trimmed\.endsWith\("市"\)/);
   assert.match(source, /navigator\.geolocation\.getCurrentPosition/);
-  assert.match(source, /请从搜索结果里选中一个城市/);
+  assert.match(source, /请从搜索结果里选中一个城市或区县/);
 });
 
 test("reads one or two garment labels and keeps the result correctable", async () => {

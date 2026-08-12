@@ -184,15 +184,43 @@ summary {
 }
 
 .city-search-wrap {
-  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
 }
 
 .city-search-status {
-  position: absolute;
-  top: 16px;
-  right: 13px;
+  margin: 8px 2px 0;
   color: #71869a;
   font-size: 12px;
+}
+
+.city-search-submit {
+  min-width: 68px;
+  min-height: 48px;
+  border: 0;
+  border-radius: 12px;
+  padding: 0 14px;
+  color: var(--white);
+  background: linear-gradient(145deg, var(--blue), var(--blue-deep));
+  box-shadow: 0 8px 20px rgba(11, 77, 157, .18);
+  font-size: 14px;
+  font-weight: 750;
+  cursor: pointer;
+  transition: transform .15s ease, box-shadow .15s ease, opacity .15s ease;
+}
+
+.city-search-submit:active {
+  transform: scale(.96);
+}
+
+.city-search-submit:disabled {
+  opacity: .62;
+  cursor: wait;
+}
+
+.city-search-feedback:empty {
+  display: none;
 }
 
 .city-results {
@@ -237,6 +265,16 @@ summary {
   margin: 8px 2px 0;
   color: #8d4b45;
   font-size: 12px;
+}
+
+.city-search-credit {
+  margin: 7px 2px 0;
+  color: #71869a;
+  font-size: 11px;
+}
+
+.city-search-credit a {
+  color: inherit;
 }
 
 .location-button {
@@ -3333,10 +3371,6 @@ label:has(input:focus-visible) {
 }
 
 @media (max-width: 370px) {
-  .city-row {
-    grid-template-columns: 1fr;
-  }
-
   .segmented-grid {
     grid-template-columns: repeat(3, 1fr);
   }

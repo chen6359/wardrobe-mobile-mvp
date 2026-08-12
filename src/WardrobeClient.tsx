@@ -46,6 +46,12 @@ type Profile = {
   preferredScenes: Scene[];
 };
 
+type CityOption = Omit<Profile, "preferredScenes"> & {
+  id: string;
+  detail: string;
+  source?: "known" | "open-meteo" | "openstreetmap";
+};
+
 type Weather = {
   temperature: number;
   apparentTemperature: number;
@@ -282,6 +288,86 @@ const knownCities: Record<string, Omit<Profile, "city" | "preferredScenes">> = {
   广州: { country: "中国", latitude: 23.1291, longitude: 113.2644, timezone: "Asia/Shanghai" },
   杭州: { country: "中国", latitude: 30.2741, longitude: 120.1551, timezone: "Asia/Shanghai" },
 };
+
+const GEOCODING_CACHE_KEY = "wardrobe-geocoding-cache-v1";
+
+function normalizeAdministrativeQuery(value: string) {
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  const municipalityMatch = trimmed.match(/^(北京市|上海市|天津市|重庆市)(.+)$/);
+  const reordered = municipalityMatch ? `${municipalityMatch[2]} ${municipalityMatch[1]}` : trimmed;
+  return /[区县旗]$/.test(reordered) || municipalityMatch ? `${reordered} 中国` : reordered;
+}
+
+function readCachedAdministrativeSearch(query: string): CityOption[] | null {
+  try {
+    const stored = window.sessionStorage.getItem(GEOCODING_CACHE_KEY);
+    if (!stored) return null;
+    const cache = JSON.parse(stored) as Record<string, CityOption[]>;
+    return Array.isArray(cache[query]) ? cache[query] : null;
+  } catch {
+    return null;
+  }
+}
+
+function cacheAdministrativeSearch(query: string, options: CityOption[]) {
+  try {
+    const stored = window.sessionStorage.getItem(GEOCODING_CACHE_KEY);
+    const cache = stored ? JSON.parse(stored) as Record<string, CityOption[]> : {};
+    const entries = Object.entries({ ...cache, [query]: options }).slice(-20);
+    window.sessionStorage.setItem(GEOCODING_CACHE_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    // Search still works when storage is unavailable.
+  }
+}
+
+async function searchAdministrativeArea(value: string): Promise<CityOption[]> {
+  const query = normalizeAdministrativeQuery(value);
+  const cached = readCachedAdministrativeSearch(query);
+  if (cached) return cached;
+  const params = new URLSearchParams({
+    q: query,
+    format: "jsonv2",
+    addressdetails: "1",
+    dedupe: "1",
+    limit: "8",
+    "accept-language": "zh-CN",
+  });
+  const response = await fetch(`https://nominatim.openstreetmap.org/search?${params}`);
+  if (!response.ok) throw new Error("administrative lookup failed");
+  const result = await response.json();
+  const options: CityOption[] = (Array.isArray(result) ? result : [])
+    .filter((location: Record<string, unknown>) =>
+      location.type === "administrative" ||
+      ["city", "county", "municipality", "borough", "district"].includes(String(location.addresstype ?? "")),
+    )
+    .flatMap((location: Record<string, unknown>) => {
+      const latitude = Number(location.lat);
+      const longitude = Number(location.lon);
+      const name = String(location.name ?? "").trim();
+      if (!name || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return [];
+      const address = (location.address && typeof location.address === "object")
+        ? location.address as Record<string, unknown>
+        : {};
+      const detail = String(location.display_name ?? "")
+        .split(",")
+        .map((part) => part.trim())
+        .filter((part) => part && part !== name && !/^\d{4,}$/.test(part))
+        .slice(0, 2)
+        .join(" · ");
+      return [{
+        id: `osm-${String(location.osm_type ?? "place")}-${String(location.osm_id ?? `${latitude}-${longitude}`)}`,
+        city: name,
+        country: String(address.country ?? ""),
+        latitude,
+        longitude,
+        timezone: "auto",
+        detail,
+        source: "openstreetmap" as const,
+      }];
+    });
+  cacheAdministrativeSearch(query, options);
+  return options;
+}
 
 function navigate(path: string) {
   window.location.hash = path;
@@ -820,13 +906,14 @@ function StartScreen({
   notice: string;
   setNotice: (notice: string) => void;
 }) {
-  type CityOption = Omit<Profile, "preferredScenes"> & { id: string; detail: string };
   const [city, setCity] = useState(data.profile?.city ?? "");
   const [cityOptions, setCityOptions] = useState<CityOption[]>([]);
   const [selectedCity, setSelectedCity] = useState<CityOption | null>(() =>
     data.profile ? { ...data.profile, id: "saved-city", detail: [data.profile.country].filter(Boolean).join(" · ") } : null,
   );
-  const [searchStatus, setSearchStatus] = useState<"idle" | "searching" | "failed">("idle");
+  const [searchStatus, setSearchStatus] = useState<"idle" | "searching" | "empty" | "failed">("idle");
+  const [showAddressCredit, setShowAddressCredit] = useState(false);
+  const searchRequest = useRef(0);
   const [locating, setLocating] = useState(false);
   const [preferredScenes, setPreferredScenes] = useState<Scene[]>(
     data.profile?.preferredScenes?.length
@@ -834,64 +921,82 @@ function StartScreen({
       : [],
   );
 
-  useEffect(() => {
+  async function searchCity() {
     const trimmed = city.trim();
-    if (selectedCity?.city === trimmed || trimmed.length < 2) {
+    if (trimmed.length < 2) {
+      setCityOptions([]);
+      setSearchStatus("empty");
+      setNotice("请输入至少两个字，再搜索城市或区县。 ");
       return;
     }
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      setSearchStatus("searching");
-      setNotice("");
-      const localOptions: CityOption[] = Object.entries(knownCities)
-        .filter(([name]) => name.includes(trimmed) || trimmed.includes(name))
-        .map(([name, location]) => ({
-          id: `known-${name}`,
-          city: name,
-          ...location,
-          detail: location.country,
-        }));
-      if (localOptions.length > 0) setCityOptions(localOptions);
-      try {
-        async function search(name: string) {
-          const params = new URLSearchParams({ name, count: "6", language: "zh", format: "json" });
-          const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?${params}`, {
-            signal: controller.signal,
-          });
-          if (!response.ok) throw new Error("city lookup failed");
-          const result = await response.json();
-          return Array.isArray(result.results) ? result.results : [];
-        }
-        let remoteResults = await search(trimmed);
-        if (remoteResults.length === 0 && trimmed.endsWith("市")) {
-          remoteResults = await search(trimmed.slice(0, -1));
-        }
-        const remoteOptions: CityOption[] = remoteResults.map((location: Record<string, unknown>) => ({
-          id: String(location.id ?? `${location.latitude}-${location.longitude}`),
-          city: String(location.name ?? trimmed),
-          country: String(location.country ?? ""),
-          latitude: Number(location.latitude),
-          longitude: Number(location.longitude),
-          timezone: String(location.timezone ?? "auto"),
-          detail: [location.admin1, location.country].filter(Boolean).join(" · "),
-        }));
-        const unique = [...localOptions, ...remoteOptions].filter(
-          (option, index, items) => items.findIndex((item) => item.latitude === option.latitude && item.longitude === option.longitude) === index,
-        );
-        setCityOptions(unique.slice(0, 6));
-        setSearchStatus("idle");
-      } catch (error) {
-        if ((error as Error).name !== "AbortError") {
-          setCityOptions(localOptions);
-          setSearchStatus(localOptions.length > 0 ? "idle" : "failed");
-        }
+    const requestId = searchRequest.current + 1;
+    searchRequest.current = requestId;
+    setSearchStatus("searching");
+    setShowAddressCredit(false);
+    setNotice("");
+
+    const localOptions: CityOption[] = Object.entries(knownCities)
+      .filter(([name]) => trimmed === name || trimmed === `${name}市` || name.includes(trimmed))
+      .map(([name, location]) => ({
+        id: `known-${name}`,
+        city: name,
+        ...location,
+        detail: location.country,
+        source: "known",
+      }));
+    let remoteOptions: CityOption[] = [];
+    let addressOptions: CityOption[] = [];
+    let requestFailed = false;
+
+    try {
+      async function search(name: string) {
+        const params = new URLSearchParams({ name, count: "6", language: "zh", format: "json" });
+        const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?${params}`);
+        if (!response.ok) throw new Error("city lookup failed");
+        const result = await response.json();
+        return Array.isArray(result.results) ? result.results : [];
       }
-    }, 400);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [city, selectedCity?.city, setNotice]);
+      let remoteResults = await search(trimmed);
+      if (remoteResults.length === 0 && trimmed.endsWith("市")) {
+        remoteResults = await search(trimmed.slice(0, -1));
+      }
+      remoteOptions = remoteResults.map((location: Record<string, unknown>) => ({
+        id: String(location.id ?? `${location.latitude}-${location.longitude}`),
+        city: String(location.name ?? trimmed),
+        country: String(location.country ?? ""),
+        latitude: Number(location.latitude),
+        longitude: Number(location.longitude),
+        timezone: String(location.timezone ?? "auto"),
+        detail: [location.admin1, location.country].filter(Boolean).join(" · "),
+        source: "open-meteo",
+      }));
+    } catch {
+      requestFailed = true;
+    }
+
+    const shouldSearchAdministrativeArea = /[区县旗]$/.test(trimmed) || localOptions.length + remoteOptions.length === 0;
+    if (shouldSearchAdministrativeArea) {
+      try {
+        addressOptions = await searchAdministrativeArea(trimmed);
+        const requestedAreaName = trimmed.replace(/^(北京市|上海市|天津市|重庆市)/, "");
+        const exactAreaOptions = addressOptions.filter((option) => option.city === requestedAreaName);
+        if (exactAreaOptions.length > 0) addressOptions = exactAreaOptions;
+      } catch {
+        requestFailed = true;
+      }
+    }
+
+    if (searchRequest.current !== requestId) return;
+    const unique = [...localOptions, ...remoteOptions, ...addressOptions].filter(
+      (option, index, items) => items.findIndex((item) =>
+        Math.abs(item.latitude - option.latitude) < 0.005 && Math.abs(item.longitude - option.longitude) < 0.005,
+      ) === index,
+    );
+    const visibleOptions = unique.slice(0, 8);
+    setCityOptions(visibleOptions);
+    setShowAddressCredit(visibleOptions.some((option) => option.source === "openstreetmap"));
+    setSearchStatus(visibleOptions.length > 0 ? "idle" : requestFailed ? "failed" : "empty");
+  }
 
   function chooseCity(option: CityOption) {
     setSelectedCity(option);
@@ -944,7 +1049,7 @@ function StartScreen({
   function saveCity(event: FormEvent) {
     event.preventDefault();
     if (!selectedCity || selectedCity.city !== city.trim()) {
-      setNotice("请从搜索结果里选中一个城市，或使用当前位置。 ");
+      setNotice("请从搜索结果里选中一个城市或区县，或使用当前位置。 ");
       return;
     }
     if (preferredScenes.length < 2) {
@@ -987,11 +1092,29 @@ function StartScreen({
                 setCity(event.target.value);
                 setSelectedCity(null);
                 setCityOptions([]);
+                setSearchStatus("idle");
+                setShowAddressCredit(false);
               }}
-              placeholder="搜索城市，例如：石家庄"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void searchCity();
+                }
+              }}
+              placeholder="搜索城市或区县，例如：西城区"
               autoComplete="address-level2"
             />
-            {searchStatus === "searching" && <span className="city-search-status">正在搜索…</span>}
+            <button
+              className="city-search-submit"
+              type="button"
+              onClick={() => void searchCity()}
+              disabled={searchStatus === "searching"}
+            >
+              {searchStatus === "searching" ? "查找中" : "搜索"}
+            </button>
+          </div>
+          <div className="city-search-feedback" aria-live="polite">
+            {searchStatus === "searching" && <p className="city-search-status">正在查找城市和区县…</p>}
             {cityOptions.length > 0 && (
               <div className="city-results" role="listbox" aria-label="城市搜索结果">
                 {cityOptions.map((option) => (
@@ -1002,7 +1125,15 @@ function StartScreen({
                 ))}
               </div>
             )}
-            {searchStatus === "failed" && <p className="city-search-error">城市搜索暂时不可用，请稍后再试。</p>}
+            {searchStatus === "empty" && city.trim().length >= 2 && (
+              <p className="city-search-error">没有找到这个位置，可以试试“西城区 北京”。</p>
+            )}
+            {searchStatus === "failed" && <p className="city-search-error">地址搜索暂时不可用，请稍后再试。</p>}
+            {showAddressCredit && (
+              <p className="city-search-credit">
+                区县地址数据来自 <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>
+              </p>
+            )}
           </div>
           <button className="location-button" type="button" onClick={useCurrentLocation} disabled={locating}>
             <span aria-hidden="true">⌖</span>{locating ? "正在获取位置" : "使用当前位置"}
