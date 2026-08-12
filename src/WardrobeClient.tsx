@@ -672,6 +672,11 @@ export default function WardrobeClient({ initialView }: { initialView: View }) {
         data={data}
         record={pendingWear}
         setData={setData}
+        onSorted={() => {
+          setWorn(false);
+          setOverrides({});
+          setNotice("衣物状态已经更新，今天的搭配也重新算好了。 ");
+        }}
       />
     );
   }
@@ -825,8 +830,8 @@ function StartScreen({
   const [locating, setLocating] = useState(false);
   const [preferredScenes, setPreferredScenes] = useState<Scene[]>(
     data.profile?.preferredScenes?.length
-      ? data.profile.preferredScenes
-      : ["work", "meeting", "gym", "casual", "friends"],
+      ? data.profile.preferredScenes.slice(0, 3)
+      : [],
   );
 
   useEffect(() => {
@@ -929,11 +934,11 @@ function StartScreen({
   }
 
   function togglePreferredScene(scene: Scene) {
-    setPreferredScenes((previous) =>
-      previous.includes(scene)
-        ? previous.filter((item) => item !== scene)
-        : [...previous, scene],
-    );
+    setPreferredScenes((previous) => {
+      if (previous.includes(scene)) return previous.filter((item) => item !== scene);
+      if (previous.length >= 3) return previous;
+      return [...previous, scene];
+    });
   }
 
   function saveCity(event: FormEvent) {
@@ -942,8 +947,8 @@ function StartScreen({
       setNotice("请从搜索结果里选中一个城市，或使用当前位置。 ");
       return;
     }
-    if (preferredScenes.length === 0) {
-      setNotice("请至少选择一个你常用的穿衣场景。 ");
+    if (preferredScenes.length < 2) {
+      setNotice("请选择2—3个你最常用的穿衣场景。 ");
       return;
     }
     const profile: Profile = {
@@ -1005,7 +1010,7 @@ function StartScreen({
 
           <fieldset className="start-scenes">
             <legend>你平时会遇到哪些场景？</legend>
-            <p>先选常用的，以后随时可以换。</p>
+            <p>选择最常用的2—3个，以后随时可以换。</p>
             <div>
               {allScenes.map((item) => (
                 <button
@@ -1014,11 +1019,21 @@ function StartScreen({
                   key={item}
                   onClick={() => togglePreferredScene(item)}
                   aria-pressed={preferredScenes.includes(item)}
+                  disabled={!preferredScenes.includes(item) && preferredScenes.length >= 3}
                 >
                   {sceneLabels[item]}
                 </button>
               ))}
             </div>
+            <p className={`scene-selection-count ${preferredScenes.length >= 2 ? "ready" : ""}`} aria-live="polite">
+              {preferredScenes.length === 0
+                ? "还没有选择"
+                : preferredScenes.length < 2
+                  ? "已选1个，再选1—2个"
+                  : preferredScenes.length === 2
+                    ? "已选2个，还可以再选1个"
+                    : "已选3个，可以继续"}
+            </p>
           </fieldset>
 
           <button type="submit" className="primary-button full">
@@ -1645,10 +1660,12 @@ function WearStatusScreen({
   data,
   record,
   setData,
+  onSorted,
 }: {
   data: WardrobeData;
   record: WearRecord;
   setData: React.Dispatch<React.SetStateAction<WardrobeData>>;
+  onSorted: () => void;
 }) {
   type SortLocation = "tray" | WearPlacement;
   const wornItems = useMemo(
@@ -1744,6 +1761,7 @@ function WearStatusScreen({
       Object.entries(placements).map(([id, location]) => [id, location as WearPlacement]),
     );
     setData((previous) => applyWearPlacements(previous, record.id, finalized));
+    onSorted();
     navigate("/today");
   }
 

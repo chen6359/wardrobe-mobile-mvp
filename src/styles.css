@@ -286,7 +286,7 @@ summary {
 
 .start-scenes button,
 .detail-scenes button {
-  min-height: 40px;
+  min-height: 44px;
   border: 1px solid rgba(42, 78, 116, .14);
   border-radius: 999px;
   padding: 0 12px;
@@ -302,6 +302,24 @@ summary {
   color: #145b9c;
   background: #e4f2ff;
   font-weight: 750;
+}
+
+.start-scenes button:disabled {
+  color: #98a6b1;
+  background: rgba(255, 255, 255, .42);
+  cursor: not-allowed;
+  opacity: .62;
+}
+
+.start-scenes > .scene-selection-count {
+  margin: 11px 0 0;
+  color: #7b4a14;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.start-scenes > .scene-selection-count.ready {
+  color: #277054;
 }
 
 input,

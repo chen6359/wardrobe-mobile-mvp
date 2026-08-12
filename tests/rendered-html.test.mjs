@@ -184,3 +184,25 @@ test("keeps the purchase journey in an app-style page stack", async () => {
   assert.match(styles, /\.purchase-stack-header/);
   assert.match(styles, /\.header-action-spacer/);
 });
+
+test("recalculates today immediately after post-wear sorting", async () => {
+  const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
+  assert.match(source, /onSorted=\{\(\) => \{/);
+  assert.match(source, /setWorn\(false\)/);
+  assert.match(source, /setOverrides\(\{\}\)/);
+  assert.match(source, /衣物状态已经更新，今天的搭配也重新算好了/);
+  assert.match(source, /setData\(\(previous\) => applyWearPlacements[\s\S]*onSorted\(\);[\s\S]*navigate\("\/today"\)/);
+});
+
+test("asks new users to choose two or three real frequent scenes", async () => {
+  const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(source, /data\.profile\.preferredScenes\.slice\(0, 3\)/);
+  assert.match(source, /: \[\],/);
+  assert.match(source, /preferredScenes\.length < 2/);
+  assert.match(source, /选择最常用的2—3个/);
+  assert.match(source, /disabled=\{!preferredScenes\.includes\(item\) && preferredScenes\.length >= 3\}/);
+  assert.match(source, /已选3个，可以继续/);
+  assert.match(styles, /\.start-scenes button:disabled/);
+  assert.match(styles, /\.scene-selection-count\.ready/);
+});
