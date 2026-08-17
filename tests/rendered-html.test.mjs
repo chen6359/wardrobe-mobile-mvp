@@ -134,6 +134,19 @@ test("reads one or two garment labels and keeps the result correctable", async (
   assert.match(source, /item\.careNotes/);
 });
 
+test("keeps Qwen recognition behind a local backend and user confirmation", async () => {
+  const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
+  const client = await readFile(new URL("../src/ai-recognition.ts", import.meta.url), "utf8");
+  const server = await readFile(new URL("../server/recognition-server.mjs", import.meta.url), "utf8");
+  assert.match(source, /recognizeGarmentWithAi/);
+  assert.match(source, /结果仍由你确认后保存/);
+  assert.match(source, /帮我填写衣服信息/);
+  assert.match(client, /127\.0\.0\.1:8787\/api\/recognize/);
+  assert.match(server, /enable_thinking: false/);
+  assert.match(server, /response_format: \{ type: "json_object" \}/);
+  assert.doesNotMatch(`${source}\n${client}`, /DASHSCOPE_API_KEY/);
+});
+
 test("keeps recent scenes dynamic and filters the wardrobe by category", async () => {
   const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
   assert.match(source, /recentScenes: \[next, \.\.\.previous\.recentScenes/);

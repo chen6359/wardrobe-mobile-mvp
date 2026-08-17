@@ -22,6 +22,11 @@ import {
   type OutfitFeedback,
   type Scene,
 } from "./outfit-engine";
+import {
+  AiRecognitionError,
+  aiRecognitionEndpoint,
+  recognizeGarmentWithAi,
+} from "./ai-recognition";
 
 export type View =
   | "home"
@@ -1203,11 +1208,13 @@ function AddScreen({
   const [cleanCount, setCleanCount] = useState(3);
   const [message, setMessage] = useState("");
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
   const [labelBusy, setLabelBusy] = useState(false);
   const [labelProgress, setLabelProgress] = useState(0);
   const [lastAdded, setLastAdded] = useState<Garment | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const optionalFieldsRef = useRef<HTMLDetailsElement>(null);
   const progress = readiness(data.garments);
   const suggestedCategory = nextUsefulCategory(data.garments);
 
@@ -1267,6 +1274,52 @@ function AddScreen({
     } finally {
       setLabelBusy(false);
       setLabelProgress(0);
+    }
+  }
+
+  async function recognizeWithAi() {
+    if (!photo || aiBusy) return;
+    setAiBusy(true);
+    setMessage("正在看这件衣服，可能需要十几秒…");
+    try {
+      const images = [
+        { kind: "garment" as const, dataUrl: photo },
+        ...(careLabelPhoto ? [{ kind: "care_label" as const, dataUrl: careLabelPhoto }] : []),
+        ...(hangtagPhoto ? [{ kind: "hangtag" as const, dataUrl: hangtagPhoto }] : []),
+      ];
+      const { result } = await recognizeGarmentWithAi(images);
+      if (result.category) {
+        setCategory(result.category);
+        setSubtype(
+          result.subtype && subtypeOptions[result.category].includes(result.subtype)
+            ? result.subtype
+            : subtypeOptions[result.category][0],
+        );
+      }
+      if (result.color) setColor(result.color);
+      if (result.material) setMaterial(result.material);
+      if (result.thickness) setThickness(result.thickness);
+      if (result.size) setSize(result.size);
+      if (result.careNotes) setCareNotes(result.careNotes);
+      if (result.labelText) setLabelText(result.labelText);
+      if (result.material || result.thickness || result.size || result.careNotes || result.labelText) {
+        optionalFieldsRef.current?.setAttribute("open", "");
+      }
+      setMessage(
+        result.uncertaintyNotes.length > 0
+          ? "能看清的信息已经填好了。有些内容还需要你确认。"
+          : "衣服信息已经填好了，请检查后再放进衣橱。",
+      );
+    } catch (error) {
+      if (error instanceof AiRecognitionError && error.code === "FREE_QUOTA_EXHAUSTED") {
+        setMessage("本次识别额度已经用完，你仍然可以手动添加。 ");
+      } else if (error instanceof AiRecognitionError && error.code === "TIMEOUT") {
+        setMessage("这次识别等得有点久，你可以重试或手动填写。 ");
+      } else {
+        setMessage("这次没有识别成功，你可以重试或手动填写。 ");
+      }
+    } finally {
+      setAiBusy(false);
     }
   }
 
@@ -1369,6 +1422,18 @@ function AddScreen({
             <input ref={photoInputRef} type="file" accept="image/*" onChange={pickPhoto} />
           </label>
 
+          {photo && aiRecognitionEndpoint() && (
+            <section className="ai-entry-card" aria-live="polite">
+              <div>
+                <strong>少填几项，先让我认一下</strong>
+                <p>照片会发送至阿里云识别，结果仍由你确认后保存。</p>
+              </div>
+              <button type="button" onClick={() => void recognizeWithAi()} disabled={aiBusy || photoBusy || labelBusy}>
+                {aiBusy ? "正在识别，稍等一下…" : "帮我填写衣服信息"}
+              </button>
+            </section>
+          )}
+
           <div className="field-group">
             <label htmlFor="category">这是什么</label>
             <div className="segmented-grid" id="category">
@@ -1415,7 +1480,7 @@ function AddScreen({
             </div>
           )}
 
-          <details className="optional-fields">
+          <details className="optional-fields" ref={optionalFieldsRef}>
             <summary>多告诉我一点，搭配会更贴近你 <span>选填</span></summary>
             <div className="label-section">
               <div className="label-section-heading">
@@ -1433,7 +1498,7 @@ function AddScreen({
                 </label>
               </div>
               {(careLabelPhoto || hangtagPhoto) && (
-                <button className="label-read-button" type="button" onClick={() => void readLabels()} disabled={labelBusy}>
+                <button className="label-read-button" type="button" onClick={() => void readLabels()} disabled={labelBusy || aiBusy}>
                   {labelBusy ? `正在读取 ${Math.round(labelProgress * 100)}%` : "读取标签信息"}
                 </button>
               )}
@@ -1485,7 +1550,7 @@ function AddScreen({
               </div>
             </section>
           ) : (
-            <button className="primary-button full" type="submit" disabled={photoBusy || labelBusy}>放进我的衣橱</button>
+            <button className="primary-button full" type="submit" disabled={photoBusy || aiBusy || labelBusy}>放进我的衣橱</button>
           )}
         </form>
       </section>

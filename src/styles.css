@@ -670,6 +670,47 @@ select:focus {
   object-fit: cover;
 }
 
+.ai-entry-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+  border: 1px solid rgba(30, 90, 168, .16);
+  border-radius: 16px;
+  padding: 14px;
+  background: #f3f8fc;
+}
+
+.ai-entry-card strong {
+  color: #234b6c;
+  font-size: 13px;
+}
+
+.ai-entry-card p {
+  margin: 5px 0 0;
+  color: #718293;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.ai-entry-card button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 11px;
+  padding: 0 13px;
+  color: white;
+  background: #1e5aa8;
+  font-size: 11px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.ai-entry-card button:disabled {
+  cursor: wait;
+  opacity: .68;
+}
+
 .field-group,
 .two-fields,
 .sock-counts,
