@@ -19,4 +19,4 @@ outputs:
     description: URL of the deployed Pages site
 runs:
   using: node20
-  main: index.cjs
+  main: runner.cjs
