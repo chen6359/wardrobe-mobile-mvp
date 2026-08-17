@@ -27,6 +27,7 @@ import {
   aiRecognitionEndpoint,
   recognizeGarmentWithAi,
 } from "./ai-recognition";
+import { colorOptionGroups, subtypeOptions } from "./wardrobe-options";
 
 export type View =
   | "home"
@@ -275,14 +276,6 @@ const sceneDescriptions: Record<Scene, string> = {
   friends: "有一点亮点，也要自然",
   date: "更重视整体感和细节",
   travel: "耐走、好活动，也方便增减",
-};
-
-const subtypeOptions: Record<Category, string[]> = {
-  top: ["T恤", "Polo", "短袖衬衫", "长袖衬衫", "针织衫"],
-  bottom: ["休闲裤", "西裤", "牛仔裤", "运动裤", "短裤"],
-  shoes: ["运动鞋", "休闲鞋", "皮鞋", "凉鞋"],
-  socks: ["短袜", "中筒袜", "长袜", "运动袜"],
-  outer: ["夹克", "风衣", "西装外套", "羽绒服", "大衣"],
 };
 
 const knownCities: Record<string, Omit<Profile, "city" | "preferredScenes">> = {
@@ -1453,7 +1446,11 @@ function AddScreen({
             </label>
             <label>主颜色
               <select value={color} onChange={(event) => setColor(event.target.value)}>
-                {["黑色", "白色", "灰色", "藏青", "蓝色", "卡其", "棕色", "绿色", "红色", "其他"].map((item) => <option key={item}>{item}</option>)}
+                {colorOptionGroups.map((group) => (
+                  <optgroup label={group.label} key={group.label}>
+                    {group.options.map((item) => <option key={item}>{item}</option>)}
+                  </optgroup>
+                ))}
               </select>
             </label>
           </div>
@@ -2394,7 +2391,11 @@ function PurchaseScreen({
             </label>
             <label>主颜色
               <select value={draft.color} onChange={(event) => updateDraft({ color: event.target.value })}>
-                {["黑色", "白色", "灰色", "藏青", "蓝色", "卡其", "棕色", "绿色", "红色", "其他"].map((item) => <option key={item}>{item}</option>)}
+                {colorOptionGroups.map((group) => (
+                  <optgroup label={group.label} key={group.label}>
+                    {group.options.map((item) => <option key={item}>{item}</option>)}
+                  </optgroup>
+                ))}
               </select>
             </label>
           </div>

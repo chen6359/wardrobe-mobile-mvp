@@ -134,6 +134,16 @@ test("reads one or two garment labels and keeps the result correctable", async (
   assert.match(source, /item\.careNotes/);
 });
 
+test("uses one expanded clothing and color dictionary in add and edit forms", async () => {
+  const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
+  const options = await readFile(new URL("../shared/wardrobe-options.json", import.meta.url), "utf8");
+  assert.match(source, /import \{ colorOptionGroups, subtypeOptions \}/);
+  assert.equal((source.match(/colorOptionGroups\.map/g) ?? []).length, 2);
+  for (const item of ["连帽卫衣", "工装裤", "乐福鞋", "隐形袜", "冲锋衣", "米白", "牛仔蓝", "橄榄绿", "多色/拼色"]) {
+    assert.match(options, new RegExp(item));
+  }
+});
+
 test("keeps Qwen recognition behind a local backend and user confirmation", async () => {
   const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
   const client = await readFile(new URL("../src/ai-recognition.ts", import.meta.url), "utf8");

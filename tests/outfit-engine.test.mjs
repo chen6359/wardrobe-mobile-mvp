@@ -117,6 +117,24 @@ test("explains the actual shoe and sock color relationship", () => {
   assert.match(outfit.reasons[2], /全黑搭配不会杂乱/);
 });
 
+test("treats shades in the same expanded color family as compatible", () => {
+  assert.equal(engine.colorsWorkTogether("浅蓝", "藏青"), true);
+  assert.equal(engine.colorsWorkTogether("米白", "橄榄绿"), true);
+  assert.equal(engine.colorsWorkTogether("玫红", "墨绿"), false);
+});
+
+test("recognizes specific sports shoes in a gym outfit", () => {
+  const outfit = engine.buildOutfit([
+    garment("top", "top", { subtype: "运动上衣" }),
+    garment("bottom", "bottom", { subtype: "运动短裤" }),
+    garment("shoes", "shoes", { subtype: "训练鞋" }),
+    garment("socks", "socks", { subtype: "运动袜" }),
+  ], "gym", warmWeather, {}, []);
+
+  assert.match(outfit.reasons[0], /训练鞋/);
+  assert.doesNotMatch(outfit.limitation, /没有已确认适合运动的鞋/);
+});
+
 test("changes one garment and recalculates the rest of the outfit", () => {
   const garments = [
     garment("black-top", "top"),

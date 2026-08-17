@@ -1,15 +1,14 @@
-export const CATEGORY_OPTIONS = {
-  top: ["T恤", "Polo", "短袖衬衫", "长袖衬衫", "针织衫"],
-  bottom: ["休闲裤", "西裤", "牛仔裤", "运动裤", "短裤"],
-  shoes: ["运动鞋", "休闲鞋", "皮鞋", "凉鞋"],
-  socks: ["短袜", "中筒袜", "长袜", "运动袜"],
-  outer: ["夹克", "风衣", "西装外套", "羽绒服", "大衣"],
-};
+import wardrobeOptions from "../shared/wardrobe-options.json" with { type: "json" };
 
-export const COLOR_OPTIONS = ["黑色", "白色", "灰色", "藏青", "蓝色", "卡其", "棕色", "绿色", "红色", "其他"];
+export const CATEGORY_OPTIONS = wardrobeOptions.subtypes;
+export const COLOR_OPTIONS = wardrobeOptions.colorGroups.flatMap((group) => group.options);
 export const MATERIAL_OPTIONS = ["棉", "亚麻", "羊毛", "牛仔", "聚酯纤维", "皮革", "混纺"];
 export const VISUAL_ONLY_MATERIALS = ["牛仔", "皮革"];
 export const THICKNESS_OPTIONS = ["薄", "适中", "厚"];
+
+const subtypePrompt = Object.entries(CATEGORY_OPTIONS)
+  .map(([category, options]) => `  - ${category}: ${options.join(", ")}`)
+  .join("\n");
 
 export const RECOGNITION_PROMPT = `你是一个帮助用户整理个人衣橱的图片识别助手。请分析用户提供的衣物主图，以及可选的水洗标或购买吊牌图片，并只输出一个 JSON 对象。
 
@@ -25,12 +24,8 @@ export const RECOGNITION_PROMPT = `你是一个帮助用户整理个人衣橱的
 可选值：
 - category: top, bottom, shoes, socks, outer
 - subtype:
-  - top: T恤, Polo, 短袖衬衫, 长袖衬衫, 针织衫
-  - bottom: 休闲裤, 西裤, 牛仔裤, 运动裤, 短裤
-  - shoes: 运动鞋, 休闲鞋, 皮鞋, 凉鞋
-  - socks: 短袜, 中筒袜, 长袜, 运动袜
-  - outer: 夹克, 风衣, 西装外套, 羽绒服, 大衣
-- color: 黑色, 白色, 灰色, 藏青, 蓝色, 卡其, 棕色, 绿色, 红色, 其他
+${subtypePrompt}
+- color: ${COLOR_OPTIONS.join(", ")}
 - material: 棉, 亚麻, 羊毛, 牛仔, 聚酯纤维, 皮革, 混纺
 - thickness: 薄, 适中, 厚
 
@@ -119,4 +114,3 @@ export function validateImages(images) {
   if (normalized[0].kind !== "garment") throw new Error("第一张必须是衣物主图");
   return normalized;
 }
-
