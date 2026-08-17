@@ -30,11 +30,11 @@ jobs:
         env:
           INPUT_NAME: github-pages
           INPUT_PATH: ${{ github.workspace }}/site-source/.github/deploy/artifact.tar
-          INPUT_IF-NO-FILES-FOUND: error
-          INPUT_RETENTION-DAYS: "1"
-          INPUT_COMPRESSION-LEVEL: "6"
+          "INPUT_IF-NO-FILES-FOUND": error
+          "INPUT_RETENTION-DAYS": "1"
+          "INPUT_COMPRESSION-LEVEL": "6"
           INPUT_OVERWRITE: "false"
-          INPUT_INCLUDE-HIDDEN-FILES: "false"
+          "INPUT_INCLUDE-HIDDEN-FILES": "true"
         run: node site-source/.github/vendor/upload-artifact/index.js
 
       - name: Deploy Pages
