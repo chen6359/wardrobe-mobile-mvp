@@ -22,11 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fetch release package
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: >-
-          git -c http.extraheader="AUTHORIZATION: bearer ${GH_TOKEN}"
-          clone --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" site-source
+          git clone --depth 1
+          "https://github.com/${GITHUB_REPOSITORY}.git" site-source
 
       - name: Upload prepared site
         env:
