@@ -37,7 +37,7 @@ jobs:
           "INPUT_INCLUDE-HIDDEN-FILES": "true"
         run: |
           set +e
-          node site-source/.github/vendor/upload-artifact/index.js > "${RUNNER_TEMP}/upload.log" 2>&1
+          node site-source/.github/vendor/upload-artifact/index.cjs > "${RUNNER_TEMP}/upload.log" 2>&1
           status=$?
           cat "${RUNNER_TEMP}/upload.log"
           if [ "${status}" -ne 0 ]; then
@@ -55,4 +55,4 @@ jobs:
           INPUT_REPORTING_INTERVAL: "5000"
           INPUT_ARTIFACT_NAME: github-pages
           INPUT_PREVIEW: "false"
-        run: node site-source/.github/vendor/deploy-pages/index.js
+        run: node site-source/.github/vendor/deploy-pages/index.cjs
