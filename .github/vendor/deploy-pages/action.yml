@@ -1,0 +1,22 @@
+name: Deploy prepared GitHub Pages site
+description: Vendored GitHub Pages deployment action
+inputs:
+  token:
+    default: ${{ github.token }}
+    required: true
+  timeout:
+    default: "600000"
+  error_count:
+    default: "10"
+  reporting_interval:
+    default: "5000"
+  artifact_name:
+    default: github-pages
+  preview:
+    default: "false"
+outputs:
+  page_url:
+    description: URL of the deployed Pages site
+runs:
+  using: node20
+  main: index.cjs

@@ -1,0 +1,20 @@
+name: Upload prepared Pages artifact
+description: Vendored GitHub artifact uploader for Pages deployment
+inputs:
+  name:
+    default: artifact
+  path:
+    required: true
+  if-no-files-found:
+    default: warn
+  retention-days:
+    default: "1"
+  compression-level:
+    default: "6"
+  overwrite:
+    default: "false"
+  include-hidden-files:
+    default: "false"
+runs:
+  using: node20
+  main: index.cjs
