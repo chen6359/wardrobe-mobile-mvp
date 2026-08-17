@@ -5,6 +5,7 @@ import {
   FormEvent,
   PointerEvent as ReactPointerEvent,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -27,7 +28,12 @@ import {
   aiRecognitionEndpoint,
   recognizeGarmentWithAi,
 } from "./ai-recognition";
-import { colorOptionGroups, subtypeOptions } from "./wardrobe-options";
+import {
+  colorOptionGroups,
+  materialOptionGroups,
+  patternOptionGroups,
+  subtypeOptions,
+} from "./wardrobe-options";
 
 export type View =
   | "home"
@@ -118,10 +124,18 @@ function normalizeWardrobeData(value: unknown): WardrobeData {
         const scenes = Array.isArray(item.scenes)
           ? item.scenes.map(normalizeScene).filter((scene): scene is Scene => Boolean(scene))
           : [];
+        const materials = Array.isArray(item.materials)
+          ? item.materials.filter((material): material is string => typeof material === "string" && Boolean(material.trim()) && material !== "不知道")
+          : item.material && item.material !== "不知道"
+            ? [item.material]
+            : [];
         return {
           ...item,
           state,
           scenes,
+          material: item.material ?? materialSummary(materials),
+          materials,
+          pattern: item.pattern ?? "纯色",
           size: item.size ?? "",
           careNotes: item.careNotes ?? "",
           labelText: item.labelText ?? "",
@@ -257,6 +271,271 @@ const categoryLabels: Record<Category, string> = {
   socks: "袜子组",
   outer: "外套",
 };
+
+type ChoiceGroup = {
+  key: string;
+  label: string;
+  options: readonly string[];
+};
+
+const colorPreview: Record<string, string> = {
+  "group:黑白灰": "linear-gradient(135deg, #16191d 0 34%, #8c9299 34% 67%, #fff 67%)",
+  "group:米棕色": "#b79a73",
+  "group:蓝色": "#4f83c4",
+  "group:绿色": "#6f8c69",
+  "group:红橙黄色": "linear-gradient(135deg, #c34c4c 0 34%, #e98942 34% 67%, #e4c956 67%)",
+  "group:紫色": "#9170b8",
+  "group:其他": "linear-gradient(135deg, #e3bd58, #a96db1 52%, #65a7ba)",
+  黑色: "#1d2024",
+  炭黑: "#34373a",
+  白色: "#ffffff",
+  米白: "#f3eee2",
+  奶油白: "#fff3d8",
+  浅灰: "#d7d9dc",
+  灰色: "#9fa3a7",
+  深灰: "#5f6368",
+  银灰: "#b9bec4",
+  米色: "#d9c8a8",
+  卡其: "#b8a06c",
+  驼色: "#ad7e52",
+  棕色: "#79543a",
+  咖啡色: "#654637",
+  巧克力色: "#50352e",
+  浅蓝: "#b9d9ee",
+  天蓝: "#75b7e4",
+  蓝色: "#367bc3",
+  宝蓝: "#2458b8",
+  牛仔蓝: "#55799a",
+  深蓝: "#294c78",
+  藏青: "#1e334e",
+  薄荷绿: "#a7d5c2",
+  浅绿: "#acd19d",
+  绿色: "#57915d",
+  军绿: "#667057",
+  橄榄绿: "#7b794b",
+  墨绿: "#315844",
+  黄色: "#e7c84e",
+  芥末黄: "#c49c31",
+  橙色: "#df7d38",
+  红色: "#c84949",
+  酒红: "#873e4a",
+  粉色: "#e7a9b8",
+  玫红: "#bf4f7a",
+  紫色: "#77519a",
+  薰衣草紫: "#b4a0ce",
+  金色: "#c7a348",
+  银色: "#b8bdc3",
+  荧光色: "#a9e943",
+  "多色/拼色": "linear-gradient(135deg, #4e85cf 0 33%, #df6e69 33% 66%, #e2c95f 66%)",
+  其他: "linear-gradient(135deg, #6d7883, #d9dfe3)",
+};
+
+function groupsWithKeys(groups: readonly { label: string; options: readonly string[] }[]): ChoiceGroup[] {
+  return groups.map((group) => ({ key: group.label, label: group.label, options: group.options }));
+}
+
+function materialSummary(materials: string[]) {
+  const known = materials.filter((material) => material !== "不知道");
+  if (known.length === 0) return "不知道";
+  return known.length === 1 ? known[0] : "混纺";
+}
+
+const garmentChoiceGroups: ChoiceGroup[] = (Object.keys(categoryLabels) as Category[]).map((category) => ({
+  key: category,
+  label: categoryLabels[category],
+  options: subtypeOptions[category],
+}));
+const colorChoiceGroups = groupsWithKeys(colorOptionGroups);
+const materialChoiceGroups = groupsWithKeys(materialOptionGroups);
+const patternChoiceGroups = groupsWithKeys(patternOptionGroups);
+
+function optionGroupKey(groups: ChoiceGroup[], value: string) {
+  return groups.find((group) => group.options.includes(value))?.key ?? groups[0].key;
+}
+
+function AppleOptionMenu({
+  label,
+  value,
+  options,
+  onChange,
+  multipleValues,
+  onMultipleChange,
+  showColor = false,
+}: {
+  label: string;
+  value: string;
+  options: readonly string[];
+  onChange?: (value: string) => void;
+  multipleValues?: string[];
+  onMultipleChange?: (values: string[]) => void;
+  showColor?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  const isMultiple = Array.isArray(multipleValues) && Boolean(onMultipleChange);
+
+  useEffect(() => {
+    if (!open) return;
+    function closeOutside(event: MouseEvent | TouchEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", closeOutside);
+    document.addEventListener("touchstart", closeOutside, { passive: true });
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOutside);
+      document.removeEventListener("touchstart", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  function choose(option: string) {
+    if (isMultiple && multipleValues && onMultipleChange) {
+      onMultipleChange(
+        multipleValues.includes(option)
+          ? multipleValues.filter((item) => item !== option)
+          : [...multipleValues, option],
+      );
+      return;
+    }
+    onChange?.(option);
+    setOpen(false);
+  }
+
+  return (
+    <div className={`apple-option-menu ${open ? "open" : ""}`} ref={rootRef}>
+      <button
+        className="apple-option-trigger"
+        type="button"
+        aria-expanded={open}
+        aria-controls={menuId}
+        onClick={() => setOpen((previous) => !previous)}
+      >
+        <span className="apple-option-value">
+          {showColor && <i className="choice-swatch" style={{ background: colorPreview[value] ?? "#d5d9dd" }} aria-hidden="true" />}
+          <b>{value}</b>
+        </span>
+        <span className="apple-option-chevron" aria-hidden="true">⌄</span>
+      </button>
+      {open && (
+        <div className="apple-option-popover" id={menuId} role="listbox" aria-label={label} aria-multiselectable={isMultiple || undefined}>
+          {options.map((option) => {
+            const selected = isMultiple ? multipleValues?.includes(option) : option === value;
+            return (
+              <button
+                className={selected ? "selected" : ""}
+                type="button"
+                role="option"
+                aria-selected={Boolean(selected)}
+                key={option}
+                onClick={() => choose(option)}
+              >
+                <span>
+                  {showColor && <i className="choice-swatch" style={{ background: colorPreview[option] ?? "#d5d9dd" }} aria-hidden="true" />}
+                  {option}
+                </span>
+                {selected && <b aria-hidden="true">✓</b>}
+              </button>
+            );
+          })}
+          {isMultiple && <button className="apple-option-done" type="button" onClick={() => setOpen(false)}>选好了</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HierarchySelector({
+  label,
+  detailLabel,
+  groups,
+  activeKey,
+  value,
+  onGroupChange,
+  onChange,
+  showColor = false,
+}: {
+  label: string;
+  detailLabel: string;
+  groups: ChoiceGroup[];
+  activeKey: string;
+  value: string;
+  onGroupChange: (group: ChoiceGroup) => void;
+  onChange: (value: string) => void;
+  showColor?: boolean;
+}) {
+  const activeGroup = groups.find((group) => group.key === activeKey) ?? groups[0];
+  return (
+    <div className={`hierarchy-field ${label === "这是什么" ? "garment-hierarchy" : ""}`}>
+      <p className="field-label">{label}</p>
+      <div className={`hierarchy-families ${showColor ? "color-families" : ""}`}>
+        {groups.map((group) => (
+          <button
+            className={group.key === activeGroup.key ? "selected" : ""}
+            type="button"
+            key={group.key}
+            aria-pressed={group.key === activeGroup.key}
+            onClick={() => onGroupChange(group)}
+          >
+            {showColor && <i className="choice-swatch" style={{ background: colorPreview[`group:${group.label}`] ?? "#d5d9dd" }} aria-hidden="true" />}
+            <span>{group.label}</span>
+          </button>
+        ))}
+      </div>
+      <div className="hierarchy-detail">
+        <span>{detailLabel}</span>
+        <AppleOptionMenu label={detailLabel} value={value} options={activeGroup.options} onChange={onChange} showColor={showColor} />
+      </div>
+    </div>
+  );
+}
+
+function MultiHierarchySelector({
+  label,
+  detailLabel,
+  groups,
+  values,
+  onChange,
+}: {
+  label: string;
+  detailLabel: string;
+  groups: ChoiceGroup[];
+  values: string[];
+  onChange: (values: string[]) => void;
+}) {
+  const initialGroup = groups.find((group) => values.some((value) => group.options.includes(value))) ?? groups[0];
+  const [activeKey, setActiveKey] = useState(initialGroup.key);
+  const activeGroup = groups.find((group) => group.key === activeKey) ?? groups[0];
+
+  return (
+    <div className="hierarchy-field material-hierarchy">
+      <p className="field-label">{label}</p>
+      <div className="hierarchy-families compact-families">
+        {groups.map((group) => (
+          <button className={group.key === activeGroup.key ? "selected" : ""} type="button" key={group.key} onClick={() => setActiveKey(group.key)}>
+            <span>{group.label}</span>
+            {values.some((value) => group.options.includes(value)) && <b aria-label="这一组已有选择">•</b>}
+          </button>
+        ))}
+      </div>
+      <div className="hierarchy-detail">
+        <span>{detailLabel}</span>
+        <AppleOptionMenu
+          label={detailLabel}
+          value={values.length > 0 ? values.join("、") : "不知道"}
+          options={activeGroup.options.filter((option) => option !== "混纺" && option !== "不知道")}
+          multipleValues={values}
+          onMultipleChange={onChange}
+        />
+      </div>
+      {values.length > 1 && <p className="selection-note">已选：{values.join("、")}</p>}
+    </div>
+  );
+}
 
 const sceneLabels: Record<Scene, string> = {
   work: "普通办公",
@@ -435,6 +714,8 @@ type PurchaseDraft = {
   color: string;
   photo: string;
   material: string;
+  materials: string[];
+  pattern: string;
   thickness: string;
   size: string;
   careNotes: string;
@@ -465,6 +746,8 @@ function createPurchaseFlow(): PurchaseFlowState {
       color: "黑色",
       photo: "",
       material: "不知道",
+      materials: [],
+      pattern: "纯色",
       thickness: "不知道",
       size: "",
       careNotes: "",
@@ -497,7 +780,8 @@ function purchasePartners(category: Category): Category[] {
 function analyzePurchase(candidate: Garment, garments: Garment[]): PurchaseAnalysis {
   const similar = garments.filter((item) =>
     item.category === candidate.category
-      && (item.subtype === candidate.subtype || item.color === candidate.color),
+      && (item.subtype === candidate.subtype
+        || (item.color === candidate.color && (item.pattern ?? "纯色") === (candidate.pattern ?? "纯色"))),
   );
   const usableForMatching = garments.filter((item) => item.state !== "paused");
   const partnerCategories = purchasePartners(candidate.category);
@@ -587,9 +871,18 @@ function readLabelDetails(text: string) {
   const normalized = text.replaceAll(/\s+/g, " ").trim();
   const materialRules: [RegExp, string][] = [
     [/亚麻|linen/i, "亚麻"],
+    [/羊绒|cashmere/i, "羊绒"],
     [/羊毛|wool/i, "羊毛"],
+    [/粘胶|黏胶|viscose|rayon/i, "粘胶纤维"],
+    [/莫代尔|modal/i, "莫代尔"],
+    [/莱赛尔|lyocell|tencel/i, "莱赛尔"],
     [/聚酯|polyester/i, "聚酯纤维"],
+    [/锦纶|尼龙|nylon/i, "锦纶"],
+    [/腈纶|acrylic/i, "腈纶"],
+    [/氨纶|spandex|elastane/i, "氨纶"],
     [/牛仔|denim/i, "牛仔"],
+    [/人造革|合成革|PU\s*(?:皮|leather)/i, "人造革"],
+    [/麂皮|suede/i, "麂皮"],
     [/皮革|leather/i, "皮革"],
     [/棉|cotton/i, "棉"],
   ];
@@ -609,6 +902,7 @@ function readLabelDetails(text: string) {
   const careNotes = careRules.filter(([rule]) => rule.test(normalized)).map(([, value]) => value);
   return {
     material: materials.length > 1 ? "混纺" : materials[0] ?? "",
+    materials: [...new Set(materials)],
     size: sizeMatch?.[1]?.toUpperCase() ?? "",
     careNotes: [...new Set(careNotes)].join("、"),
   };
@@ -1189,7 +1483,8 @@ function AddScreen({
   const [color, setColor] = useState("黑色");
   const [state, setState] = useState<GarmentState>("ready");
   const [photo, setPhoto] = useState("");
-  const [material, setMaterial] = useState("不知道");
+  const [materials, setMaterials] = useState<string[]>([]);
+  const [pattern, setPattern] = useState("纯色");
   const [thickness, setThickness] = useState("不知道");
   const [size, setSize] = useState("");
   const [careNotes, setCareNotes] = useState("");
@@ -1254,11 +1549,11 @@ function AddScreen({
       const text = await recognizeLabels(images, setLabelProgress);
       const details = readLabelDetails(text);
       setLabelText(text.trim());
-      if (details.material) setMaterial(details.material);
+      if (details.materials.length > 0) setMaterials(details.materials);
       if (details.size) setSize(details.size);
       if (details.careNotes) setCareNotes(details.careNotes);
       setMessage(
-        details.material || details.size || details.careNotes
+        details.materials.length > 0 || details.size || details.careNotes
           ? "标签读好了。请检查下面的信息，不准确的地方可以直接改。"
           : "照片已保留，但没有读出可靠信息。你可以在下面手动补充。",
       );
@@ -1290,12 +1585,14 @@ function AddScreen({
         );
       }
       if (result.color) setColor(result.color);
-      if (result.material) setMaterial(result.material);
+      if ((result.materials ?? []).length > 0) setMaterials(result.materials);
+      else if (result.material) setMaterials([result.material]);
+      if (result.pattern) setPattern(result.pattern);
       if (result.thickness) setThickness(result.thickness);
       if (result.size) setSize(result.size);
       if (result.careNotes) setCareNotes(result.careNotes);
       if (result.labelText) setLabelText(result.labelText);
-      if (result.material || result.thickness || result.size || result.careNotes || result.labelText) {
+      if ((result.materials ?? []).length > 0 || result.material || result.pattern || result.thickness || result.size || result.careNotes || result.labelText) {
         optionalFieldsRef.current?.setAttribute("open", "");
       }
       setMessage(
@@ -1339,7 +1636,9 @@ function AddScreen({
       color,
       state,
       photo,
-      material,
+      material: materialSummary(materials),
+      materials,
+      pattern,
       thickness,
       size,
       careNotes,
@@ -1427,33 +1726,26 @@ function AddScreen({
             </section>
           )}
 
-          <div className="field-group">
-            <label htmlFor="category">这是什么</label>
-            <div className="segmented-grid" id="category">
-              {(Object.keys(categoryLabels) as Category[]).map((item) => (
-                <button className={category === item ? "selected" : ""} type="button" key={item} onClick={() => changeCategory(item)}>
-                  {categoryLabels[item]}
-                </button>
-              ))}
-            </div>
-          </div>
+          <HierarchySelector
+            label="这是什么"
+            detailLabel="具体类别"
+            groups={garmentChoiceGroups}
+            activeKey={category}
+            value={subtype}
+            onGroupChange={(group) => changeCategory(group.key as Category)}
+            onChange={setSubtype}
+          />
 
-          <div className="two-fields">
-            <label>具体类别
-              <select value={subtype} onChange={(event) => setSubtype(event.target.value)}>
-                {subtypeOptions[category].map((item) => <option key={item}>{item}</option>)}
-              </select>
-            </label>
-            <label>主颜色
-              <select value={color} onChange={(event) => setColor(event.target.value)}>
-                {colorOptionGroups.map((group) => (
-                  <optgroup label={group.label} key={group.label}>
-                    {group.options.map((item) => <option key={item}>{item}</option>)}
-                  </optgroup>
-                ))}
-              </select>
-            </label>
-          </div>
+          <HierarchySelector
+            label="主颜色"
+            detailLabel="具体颜色"
+            groups={colorChoiceGroups}
+            activeKey={optionGroupKey(colorChoiceGroups, color)}
+            value={color}
+            onGroupChange={(group) => setColor(group.options[0])}
+            onChange={setColor}
+            showColor
+          />
 
           <div className="field-group">
             <p className="field-label">现在能穿吗</p>
@@ -1500,26 +1792,29 @@ function AddScreen({
                 </button>
               )}
             </div>
-            <div className="two-fields">
-              <label>材质
-                <select value={material} onChange={(event) => setMaterial(event.target.value)}>
-                  {["不知道", "棉", "亚麻", "羊毛", "牛仔", "聚酯纤维", "皮革", "混纺"].map((item) => <option key={item}>{item}</option>)}
-                </select>
-              </label>
+            <MultiHierarchySelector label="材质" detailLabel="具体材质（可多选）" groups={materialChoiceGroups} values={materials} onChange={setMaterials} />
+            <HierarchySelector
+              label="图案"
+              detailLabel="具体图案"
+              groups={patternChoiceGroups}
+              activeKey={optionGroupKey(patternChoiceGroups, pattern)}
+              value={pattern}
+              onGroupChange={(group) => setPattern(group.options[0])}
+              onChange={setPattern}
+            />
+            <div className="two-fields compact-input-fields">
               <label>尺码
                 <input value={size} onChange={(event) => setSize(event.target.value)} placeholder="例如：L" />
               </label>
-            </div>
-            <div className="two-fields">
               <label>厚薄
                 <select value={thickness} onChange={(event) => setThickness(event.target.value)}>
                   {["不知道", "薄", "适中", "厚"].map((item) => <option key={item}>{item}</option>)}
                 </select>
               </label>
-              <label>洗护提醒
-                <input value={careNotes} onChange={(event) => setCareNotes(event.target.value)} placeholder="例如：不可烘干" />
-              </label>
             </div>
+            <label className="full-field-label">洗护提醒
+                <input value={careNotes} onChange={(event) => setCareNotes(event.target.value)} placeholder="例如：不可烘干" />
+            </label>
             {labelText && <p className="label-read-note">已经读过标签文字；上面的内容以你最后确认的为准。</p>}
             <p className="field-label scene-field-label">更适合哪些场景</p>
             <div className="scene-checks">
@@ -2158,6 +2453,7 @@ function PurchaseScreen({
       updateDraft({
         labelText: text.trim(),
         material: details.material || draft.material,
+        materials: details.materials.length > 0 ? details.materials : draft.materials,
         size: details.size || draft.size,
         careNotes: details.careNotes || draft.careNotes,
       });
@@ -2192,6 +2488,8 @@ function PurchaseScreen({
       state: "ready",
       photo: draft.photo,
       material: draft.material,
+      materials: draft.materials,
+      pattern: draft.pattern,
       thickness: draft.thickness,
       size: draft.size,
       careNotes: draft.careNotes,
@@ -2375,30 +2673,25 @@ function PurchaseScreen({
             <input type="file" accept="image/*" onChange={pickPhoto} />
           </label>
 
-          <div className="field-group">
-            <p className="field-label">这是什么</p>
-            <div className="segmented-grid">
-              {(Object.keys(categoryLabels) as Category[]).map((item) => (
-                <button className={draft.category === item ? "selected" : ""} type="button" key={item} onClick={() => changeCategory(item)}>{categoryLabels[item]}</button>
-              ))}
-            </div>
-          </div>
-          <div className="two-fields">
-            <label>具体类别
-              <select value={draft.subtype} onChange={(event) => updateDraft({ subtype: event.target.value })}>
-                {subtypeOptions[draft.category].map((item) => <option key={item}>{item}</option>)}
-              </select>
-            </label>
-            <label>主颜色
-              <select value={draft.color} onChange={(event) => updateDraft({ color: event.target.value })}>
-                {colorOptionGroups.map((group) => (
-                  <optgroup label={group.label} key={group.label}>
-                    {group.options.map((item) => <option key={item}>{item}</option>)}
-                  </optgroup>
-                ))}
-              </select>
-            </label>
-          </div>
+          <HierarchySelector
+            label="这是什么"
+            detailLabel="具体类别"
+            groups={garmentChoiceGroups}
+            activeKey={draft.category}
+            value={draft.subtype}
+            onGroupChange={(group) => changeCategory(group.key as Category)}
+            onChange={(value) => updateDraft({ subtype: value })}
+          />
+          <HierarchySelector
+            label="主颜色"
+            detailLabel="具体颜色"
+            groups={colorChoiceGroups}
+            activeKey={optionGroupKey(colorChoiceGroups, draft.color)}
+            value={draft.color}
+            onGroupChange={(group) => updateDraft({ color: group.options[0] })}
+            onChange={(value) => updateDraft({ color: value })}
+            showColor
+          />
 
           <details className="optional-fields purchase-details">
             <summary>有标签或商品信息 <span>选填</span></summary>
@@ -2420,22 +2713,31 @@ function PurchaseScreen({
                 </button>
               )}
             </div>
-            <div className="two-fields">
-              <label>材质
-                <select value={draft.material} onChange={(event) => updateDraft({ material: event.target.value })}>
-                  {["不知道", "棉", "亚麻", "羊毛", "牛仔", "聚酯纤维", "皮革", "混纺"].map((item) => <option key={item}>{item}</option>)}
-                </select>
-              </label>
+            <MultiHierarchySelector
+              label="材质"
+              detailLabel="具体材质（可多选）"
+              groups={materialChoiceGroups}
+              values={draft.materials}
+              onChange={(values) => updateDraft({ materials: values, material: materialSummary(values) })}
+            />
+            <HierarchySelector
+              label="图案"
+              detailLabel="具体图案"
+              groups={patternChoiceGroups}
+              activeKey={optionGroupKey(patternChoiceGroups, draft.pattern)}
+              value={draft.pattern}
+              onGroupChange={(group) => updateDraft({ pattern: group.options[0] })}
+              onChange={(value) => updateDraft({ pattern: value })}
+            />
+            <div className="two-fields compact-input-fields">
               <label>厚薄
                 <select value={draft.thickness} onChange={(event) => updateDraft({ thickness: event.target.value })}>
                   {["不知道", "薄", "适中", "厚"].map((item) => <option key={item}>{item}</option>)}
                 </select>
               </label>
-            </div>
-            <div className="two-fields">
               <label>尺码<input value={draft.size} onChange={(event) => updateDraft({ size: event.target.value })} placeholder="例如：L" /></label>
-              <label>洗护提醒<input value={draft.careNotes} onChange={(event) => updateDraft({ careNotes: event.target.value })} placeholder="例如：不可烘干" /></label>
             </div>
+            <label className="full-field-label">洗护提醒<input value={draft.careNotes} onChange={(event) => updateDraft({ careNotes: event.target.value })} placeholder="例如：不可烘干" /></label>
             <p className="field-label scene-field-label">你打算什么时候穿</p>
             <div className="scene-checks">
               {allScenes.map((item) => (
@@ -2563,6 +2865,8 @@ function WardrobeScreen({
     color: "黑色",
     photo: "",
     material: "不知道",
+    materials: [] as string[],
+    pattern: "纯色",
     thickness: "不知道",
     size: "",
     careNotes: "",
@@ -2582,6 +2886,8 @@ function WardrobeScreen({
       color: item.color,
       photo: item.photo,
       material: item.material,
+      materials: item.materials ?? (item.material && item.material !== "不知道" ? [item.material] : []),
+      pattern: item.pattern ?? "纯色",
       thickness: item.thickness,
       size: item.size,
       careNotes: item.careNotes,
@@ -2667,6 +2973,7 @@ function WardrobeScreen({
         ...previous,
         labelText: text.trim(),
         material: details.material || previous.material,
+        materials: details.materials.length > 0 ? details.materials : previous.materials,
         size: details.size || previous.size,
         careNotes: details.careNotes || previous.careNotes,
       }));
@@ -2701,6 +3008,7 @@ function WardrobeScreen({
     if (!selectedItem) return;
     updateGarment(selectedItem.id, {
       ...draft,
+      material: materialSummary(draft.materials),
       totalCount: draft.category === "socks" ? selectedItem.totalCount ?? 1 : undefined,
       cleanCount: draft.category === "socks"
         ? selectedItem.cleanCount ?? (selectedItem.state === "ready" ? 1 : 0)
@@ -2797,30 +3105,41 @@ function WardrobeScreen({
             </label>
 
             <div className="detail-fields">
-              <label>衣物大类
-                <select value={draft.category} onChange={(event) => changeDraftCategory(event.target.value as Category)}>
-                  {(Object.keys(categoryLabels) as Category[]).map((item) => <option value={item} key={item}>{categoryLabels[item]}</option>)}
-                </select>
-              </label>
-              <label>具体类别
-                <select value={draft.subtype} onChange={(event) => setDraft((previous) => ({ ...previous, subtype: event.target.value }))}>
-                  {subtypeOptions[draft.category].map((item) => <option key={item}>{item}</option>)}
-                </select>
-              </label>
-              <label>主颜色
-                <select value={draft.color} onChange={(event) => setDraft((previous) => ({ ...previous, color: event.target.value }))}>
-                  {colorOptionGroups.map((group) => (
-                    <optgroup label={group.label} key={group.label}>
-                      {group.options.map((item) => <option key={item}>{item}</option>)}
-                    </optgroup>
-                  ))}
-                </select>
-              </label>
-              <label>材质
-                <select value={draft.material} onChange={(event) => setDraft((previous) => ({ ...previous, material: event.target.value }))}>
-                  {["不知道", "棉", "亚麻", "羊毛", "牛仔", "聚酯纤维", "皮革", "混纺"].map((item) => <option key={item}>{item}</option>)}
-                </select>
-              </label>
+              <HierarchySelector
+                label="这是什么"
+                detailLabel="具体类别"
+                groups={garmentChoiceGroups}
+                activeKey={draft.category}
+                value={draft.subtype}
+                onGroupChange={(group) => changeDraftCategory(group.key as Category)}
+                onChange={(value) => setDraft((previous) => ({ ...previous, subtype: value }))}
+              />
+              <HierarchySelector
+                label="主颜色"
+                detailLabel="具体颜色"
+                groups={colorChoiceGroups}
+                activeKey={optionGroupKey(colorChoiceGroups, draft.color)}
+                value={draft.color}
+                onGroupChange={(group) => setDraft((previous) => ({ ...previous, color: group.options[0] }))}
+                onChange={(value) => setDraft((previous) => ({ ...previous, color: value }))}
+                showColor
+              />
+              <MultiHierarchySelector
+                label="材质"
+                detailLabel="具体材质（可多选）"
+                groups={materialChoiceGroups}
+                values={draft.materials}
+                onChange={(values) => setDraft((previous) => ({ ...previous, materials: values, material: materialSummary(values) }))}
+              />
+              <HierarchySelector
+                label="图案"
+                detailLabel="具体图案"
+                groups={patternChoiceGroups}
+                activeKey={optionGroupKey(patternChoiceGroups, draft.pattern)}
+                value={draft.pattern}
+                onGroupChange={(group) => setDraft((previous) => ({ ...previous, pattern: group.options[0] }))}
+                onChange={(value) => setDraft((previous) => ({ ...previous, pattern: value }))}
+              />
               <label>厚薄
                 <select value={draft.thickness} onChange={(event) => setDraft((previous) => ({ ...previous, thickness: event.target.value }))}>
                   {["不知道", "薄", "适中", "厚"].map((item) => <option key={item}>{item}</option>)}

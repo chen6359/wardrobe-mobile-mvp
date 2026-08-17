@@ -134,14 +134,23 @@ test("reads one or two garment labels and keeps the result correctable", async (
   assert.match(source, /item\.careNotes/);
 });
 
-test("uses one expanded clothing and color dictionary in add and edit forms", async () => {
+test("uses one two-level clothing, color, material, and pattern dictionary across entry flows", async () => {
   const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
   const options = await readFile(new URL("../shared/wardrobe-options.json", import.meta.url), "utf8");
-  assert.match(source, /import \{ colorOptionGroups, subtypeOptions \}/);
-  assert.equal((source.match(/colorOptionGroups\.map/g) ?? []).length, 3);
-  assert.match(source, /衣物大类/);
+  assert.match(source, /materialOptionGroups/);
+  assert.match(source, /patternOptionGroups/);
+  assert.equal((source.match(/<HierarchySelector/g) ?? []).length, 9);
+  assert.equal((source.match(/<MultiHierarchySelector/g) ?? []).length, 3);
+  assert.doesNotMatch(source, /<optgroup/);
+  assert.match(source, /detailLabel="具体颜色"/);
+  assert.match(source, /detailLabel="具体材质（可多选）"/);
+  assert.match(source, /detailLabel="具体图案"/);
   assert.match(source, /changeDraftCategory/);
-  for (const item of ["连帽卫衣", "工装裤", "乐福鞋", "隐形袜", "冲锋衣", "米白", "牛仔蓝", "橄榄绿", "多色/拼色"]) {
+  assert.match(styles, /\.apple-option-popover\s*\{[^}]*right: 0;[^}]*left: 0;[^}]*width: 100%;[^}]*max-width: 100%/s);
+  assert.match(styles, /max-height: min\(300px, 42svh\)/);
+  assert.match(styles, /backdrop-filter: blur\(24px\)/);
+  for (const item of ["连帽卫衣", "工装裤", "乐福鞋", "隐形袜", "冲锋衣", "米白", "牛仔蓝", "橄榄绿", "多色/拼色", "羊绒", "莱赛尔", "锦纶", "灯芯绒", "千鸟格", "材质拼接"]) {
     assert.match(options, new RegExp(item));
   }
 });

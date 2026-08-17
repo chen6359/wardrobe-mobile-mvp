@@ -18,7 +18,8 @@ test("keeps only form-supported values", () => {
     category: "top",
     subtype: "T恤",
     color: "白色",
-    material: "棉",
+    materials: ["棉", "氨纶"],
+    pattern: "纯色",
     thickness: "薄",
     size: "L",
     careNotes: "不可烘干",
@@ -27,7 +28,9 @@ test("keeps only form-supported values", () => {
   }, { hasLabel: true });
   assert.equal(result.category, "top");
   assert.equal(result.subtype, "T恤");
-  assert.equal(result.material, "棉");
+  assert.equal(result.material, "混纺");
+  assert.deepEqual(result.materials, ["棉", "氨纶"]);
+  assert.equal(result.pattern, "纯色");
   assert.equal(result.size, "L");
 });
 
@@ -41,6 +44,8 @@ test("supports the expanded garment and color dictionaries", () => {
   assert.ok(COLOR_OPTIONS.includes("牛仔蓝"));
   assert.ok(COLOR_OPTIONS.includes("橄榄绿"));
   assert.ok(COLOR_OPTIONS.length >= 40);
+  assert.match(RECOGNITION_PROMPT, /莱赛尔/);
+  assert.match(RECOGNITION_PROMPT, /千鸟格/);
   assert.match(RECOGNITION_PROMPT, /连帽卫衣/);
   assert.match(RECOGNITION_PROMPT, /牛仔蓝/);
 
@@ -70,6 +75,7 @@ test("does not infer fiber content from a garment photo without a label", () => 
 test("allows visible denim as a correctable material candidate", () => {
   const result = normalizeRecognition({ category: "bottom", subtype: "牛仔裤", material: "牛仔" });
   assert.equal(result.material, "牛仔");
+  assert.deepEqual(result.materials, ["牛仔"]);
 });
 
 test("requires the garment image first and rejects unsupported payloads", () => {

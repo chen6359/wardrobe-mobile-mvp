@@ -3384,6 +3384,311 @@ label:has(input:focus-visible) {
   outline-offset: 2px;
 }
 
+/* Bounded two-level selectors */
+
+.hierarchy-field {
+  min-width: 0;
+  margin-top: 24px;
+}
+
+.detail-fields > .hierarchy-field {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+
+.hierarchy-field > .field-label {
+  margin-bottom: 10px;
+}
+
+.hierarchy-families {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(66px, 1fr));
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+}
+
+.garment-hierarchy .hierarchy-families {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.garment-hierarchy .hierarchy-families button {
+  padding-right: 5px;
+  padding-left: 5px;
+  font-size: 11px;
+}
+
+.hierarchy-families.color-families {
+  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
+}
+
+.hierarchy-families.compact-families {
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+}
+
+.hierarchy-families button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid rgba(20, 40, 61, .11);
+  border-radius: 12px;
+  padding: 8px 9px;
+  color: #506271;
+  background: rgba(255, 255, 255, .82);
+  box-shadow: 0 1px 1px rgba(20, 40, 61, .02);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.15;
+  cursor: pointer;
+  transition: transform 140ms ease-out, color 140ms ease-out, background-color 140ms ease-out, border-color 140ms ease-out, box-shadow 140ms ease-out;
+}
+
+.hierarchy-families button span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.hierarchy-families button b {
+  color: var(--blue);
+  font-size: 14px;
+}
+
+.hierarchy-families button.selected {
+  border-color: rgba(30, 90, 168, .42);
+  color: #164f86;
+  background: #edf6ff;
+  box-shadow: inset 0 0 0 1px rgba(30, 90, 168, .08), 0 4px 12px rgba(30, 90, 168, .07);
+}
+
+.hierarchy-families button:active,
+.apple-option-trigger:active,
+.apple-option-popover button:active {
+  transform: scale(.96);
+}
+
+.choice-swatch {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(20, 40, 61, .14);
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(20, 40, 61, .08);
+}
+
+.hierarchy-detail {
+  display: grid;
+  grid-template-columns: minmax(72px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  margin-top: 9px;
+  border-radius: 16px;
+  padding: 8px 8px 8px 13px;
+  background: rgba(234, 239, 242, .72);
+}
+
+.hierarchy-detail > span {
+  color: #70808d;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.apple-option-menu {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.apple-option-menu.open {
+  z-index: 30;
+}
+
+.apple-option-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  border: 0;
+  border-radius: 12px;
+  padding: 0 12px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, .96);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .8) inset, 0 1px 3px rgba(20, 40, 61, .09), 0 0 0 1px rgba(20, 40, 61, .08);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform 140ms ease-out, box-shadow 140ms ease-out, background-color 140ms ease-out;
+}
+
+.apple-option-menu.open .apple-option-trigger {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .8) inset, 0 0 0 3px rgba(30, 90, 168, .13), 0 0 0 1px rgba(30, 90, 168, .45);
+}
+
+.apple-option-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.apple-option-value b {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apple-option-chevron {
+  flex: 0 0 auto;
+  color: #71808c;
+  font-size: 19px;
+  line-height: 1;
+  transform: translateY(-2px);
+  transition: transform 160ms ease-out;
+}
+
+.apple-option-menu.open .apple-option-chevron {
+  transform: translateY(2px) rotate(180deg);
+}
+
+.apple-option-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  left: 0;
+  display: grid;
+  width: 100%;
+  max-width: 100%;
+  max-height: min(300px, 42svh);
+  border: 1px solid rgba(20, 40, 61, .1);
+  border-radius: 16px;
+  padding: 6px;
+  background: rgba(250, 251, 252, .98);
+  box-shadow: 0 18px 48px rgba(20, 40, 61, .2), 0 4px 12px rgba(20, 40, 61, .08);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+@supports (backdrop-filter: blur(20px)) {
+  .apple-option-popover {
+    background: rgba(248, 250, 252, .88);
+    backdrop-filter: blur(24px) saturate(1.35);
+  }
+}
+
+.apple-option-popover button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: 11px;
+  padding: 0 11px;
+  color: #283c4e;
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 140ms ease-out, color 140ms ease-out, background-color 140ms ease-out;
+}
+
+.apple-option-popover button > span {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.apple-option-popover button.selected {
+  color: #145b9c;
+  background: rgba(225, 240, 253, .9);
+  font-weight: 700;
+}
+
+.apple-option-popover button > b {
+  color: var(--blue);
+  font-size: 14px;
+}
+
+.apple-option-popover .apple-option-done {
+  position: sticky;
+  bottom: 0;
+  justify-content: center;
+  margin-top: 5px;
+  color: white;
+  background: var(--blue);
+  box-shadow: 0 5px 14px rgba(30, 90, 168, .18);
+  font-weight: 750;
+}
+
+.selection-note {
+  margin: 8px 4px 0;
+  color: #758592;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.full-field-label {
+  display: block;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.full-field-label input {
+  margin-top: 9px;
+}
+
+.compact-input-fields {
+  margin-top: 16px;
+}
+
+.optional-fields .hierarchy-field:first-of-type {
+  margin-top: 20px;
+}
+
+@media (max-width: 370px) {
+  .garment-hierarchy .hierarchy-families {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .garment-hierarchy .hierarchy-families button {
+    padding-right: 2px;
+    padding-left: 2px;
+    font-size: 10px;
+  }
+
+  .hierarchy-families,
+  .hierarchy-families.color-families,
+  .hierarchy-families.compact-families {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .hierarchy-detail {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+}
+
 @media (min-width: 700px) {
   body {
     background: #dfeefa;

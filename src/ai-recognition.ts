@@ -3,6 +3,8 @@ export type AiRecognitionResult = {
   subtype: string | null;
   color: string | null;
   material: string | null;
+  materials: string[];
+  pattern: string | null;
   thickness: string | null;
   size: string;
   careNotes: string;
@@ -64,4 +66,3 @@ export async function recognizeGarmentWithAi(images: RecognitionImage[]): Promis
     window.clearTimeout(timer);
   }
 }
-

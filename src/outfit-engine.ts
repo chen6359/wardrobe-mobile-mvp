@@ -12,6 +12,8 @@ export type Garment = {
   state: GarmentState;
   photo: string;
   material: string;
+  materials?: string[];
+  pattern?: string;
   thickness: string;
   size: string;
   careNotes: string;
@@ -71,6 +73,16 @@ const colorFamilies: Record<string, string> = Object.fromEntries([
   ...["紫色", "薰衣草紫"].map((color) => [color, "purple"]),
 ]);
 const versatileColorFamilies = ["neutral", "earth"];
+
+function garmentMaterials(item: Garment | undefined) {
+  if (!item) return [];
+  if (Array.isArray(item.materials) && item.materials.length > 0) return item.materials.filter((material) => material !== "不知道");
+  return item.material && item.material !== "不知道" ? [item.material] : [];
+}
+
+function hasMaterial(item: Garment | undefined, materials: string[]) {
+  return garmentMaterials(item).some((material) => materials.includes(material));
+}
 
 function colorFamily(color: string) {
   return colorFamilies[color] ?? color;
@@ -196,6 +208,11 @@ function styleCohesionScore(items: Garment[], scene: Scene) {
     .map((item) => formalityBySubtype[item.subtype] ?? 2);
   const spread = Math.max(...core) - Math.min(...core);
   let score = spread <= 1 ? 9 : spread <= 2 ? 3 : -9;
+  const visiblePatterns = items.filter(
+    (item) => item.category !== "socks" && item.pattern && item.pattern !== "纯色",
+  );
+  if (visiblePatterns.length === 1) score += 2;
+  if (visiblePatterns.length >= 2) score -= (visiblePatterns.length - 1) * 4;
 
   if (scene === "gym") {
     score += items.filter((item) => trainingTypes.includes(item.subtype)).length * 3;
@@ -205,11 +222,11 @@ function styleCohesionScore(items: Garment[], scene: Scene) {
   const top = itemByCategory(items, "top");
   const bottom = itemByCategory(items, "bottom");
   const shoes = itemByCategory(items, "shoes");
-  if (["casual", "friends", "travel"].includes(scene) && top?.material === "棉" && bottom?.material === "牛仔") {
+  if (["casual", "friends", "travel"].includes(scene) && hasMaterial(top, ["棉"]) && hasMaterial(bottom, ["牛仔"])) {
     score += 3;
   }
-  if (scene === "meeting" && bottom?.material === "牛仔") score -= 3;
-  if (scene === "meeting" && shoes?.material === "皮革") score += 2;
+  if (scene === "meeting" && hasMaterial(bottom, ["牛仔"])) score -= 3;
+  if (scene === "meeting" && hasMaterial(shoes, ["皮革", "人造革", "麂皮"])) score += 2;
   return score;
 }
 
@@ -220,13 +237,13 @@ function weatherCohesionScore(items: Garment[], temperature: number) {
     if (temperature >= 26) {
       if (item.thickness === "薄") score += 5;
       if (item.thickness === "厚") score -= 8;
-      if (["棉", "亚麻"].includes(item.material)) score += 3;
-      if (["羊毛", "皮革"].includes(item.material)) score -= 5;
+      if (hasMaterial(item, ["棉", "亚麻", "粘胶纤维", "莫代尔", "莱赛尔"])) score += 3;
+      if (hasMaterial(item, ["羊毛", "羊绒", "皮革", "人造革", "麂皮"])) score -= 5;
       if (item.category === "outer") score -= 10;
     } else if (temperature < 16) {
       if (item.thickness === "厚") score += 5;
       if (item.thickness === "薄") score -= 3;
-      if (item.material === "羊毛") score += 4;
+      if (hasMaterial(item, ["羊毛", "羊绒"])) score += 4;
       if (item.category === "outer") score += 8;
     } else if (item.thickness === "适中") {
       score += 4;
@@ -263,8 +280,8 @@ export function scoreItem(item: Garment, scene: Scene, temperature: number, hist
   if (temperature >= 26 && item.thickness === "薄") score += 7;
   if (temperature >= 18 && temperature < 26 && item.thickness === "适中") score += 6;
   if (temperature < 18 && item.thickness === "厚") score += 7;
-  if (temperature >= 24 && ["棉", "亚麻"].includes(item.material)) score += 3;
-  if (temperature < 16 && item.material === "羊毛") score += 4;
+  if (temperature >= 24 && hasMaterial(item, ["棉", "亚麻", "粘胶纤维", "莫代尔", "莱赛尔"])) score += 3;
+  if (temperature < 16 && hasMaterial(item, ["羊毛", "羊绒"])) score += 4;
   if (!item.thickness || item.thickness === "不知道") score += 2;
   return score + preferenceAdjustment(item, scene, history);
 }
@@ -350,7 +367,8 @@ function describeWeather(weather: OutfitWeather, items: Garment[]) {
   const outer = itemByCategory(items, "outer");
   if (!top) return `体感约 ${temperature}°，目前只能根据已有衣物判断。`;
   const knownThickness = top.thickness && top.thickness !== "不知道";
-  const knownMaterial = top.material && top.material !== "不知道";
+  const knownMaterials = garmentMaterials(top);
+  const knownMaterial = knownMaterials.length > 0;
   const rainNote = weather.rainProbability >= 50
     ? " 今天有雨，但衣物没有防水信息，鞋子仍按现有搭配选择。"
     : "";
@@ -362,7 +380,7 @@ function describeWeather(weather: OutfitWeather, items: Garment[]) {
     if (!knownThickness && !knownMaterial) {
       return `体感约 ${temperature}°，今天没有叠加外套；上衣材质和厚度尚未确认，出门前要留意是否闷热。${rainNote}`.trim();
     }
-    const evidence = [knownThickness ? `${top.thickness}款` : "", knownMaterial ? top.material : ""].filter(Boolean).join("、");
+    const evidence = [knownThickness ? `${top.thickness}款` : "", knownMaterial ? knownMaterials.join("、") : ""].filter(Boolean).join("、");
     return `体感约 ${temperature}°，选择了${evidence}上衣，并且没有叠加外套。${rainNote}`.trim();
   }
 
@@ -376,7 +394,7 @@ function describeWeather(weather: OutfitWeather, items: Garment[]) {
   if (!knownThickness && !knownMaterial) {
     return `体感约 ${temperature}°，上衣材质和厚度尚未确认，目前只按款式和现有层数判断。${rainNote}`.trim();
   }
-  const evidence = [knownThickness ? `${top.thickness}款` : "", knownMaterial ? top.material : ""].filter(Boolean).join("、");
+  const evidence = [knownThickness ? `${top.thickness}款` : "", knownMaterial ? knownMaterials.join("、") : ""].filter(Boolean).join("、");
   return `体感约 ${temperature}°，这件${evidence}上衣处在当前可选范围内。${rainNote}`.trim();
 }
 
@@ -404,6 +422,13 @@ function describeMatch(items: Garment[]) {
     parts.push(`${socks.color}袜子能同时接住裤装和${shoes.color}${shoes.subtype}`);
   } else {
     parts.push(`${socks.color}袜子与裤装、鞋的颜色联系较弱，是这套里最需要调整的地方`);
+  }
+
+  const patterned = items.filter((item) => item.pattern && item.pattern !== "纯色" && item.category !== "socks");
+  if (patterned.length === 1) {
+    parts.push(`${patterned[0].pattern}只出现在${patterned[0].subtype}上，其他衣物保持简单，重点更清楚`);
+  } else if (patterned.length > 1) {
+    parts.push(`${patterned.map((item) => `${item.subtype}的${item.pattern}`).join("和")}同时出现，视觉重点会比较多`);
   }
 
   const uniqueColors = new Set(items.map((item) => colorFamily(item.color)));

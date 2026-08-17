@@ -2,8 +2,9 @@ import wardrobeOptions from "../shared/wardrobe-options.json" with { type: "json
 
 export const CATEGORY_OPTIONS = wardrobeOptions.subtypes;
 export const COLOR_OPTIONS = wardrobeOptions.colorGroups.flatMap((group) => group.options);
-export const MATERIAL_OPTIONS = ["棉", "亚麻", "羊毛", "牛仔", "聚酯纤维", "皮革", "混纺"];
-export const VISUAL_ONLY_MATERIALS = ["牛仔", "皮革"];
+export const MATERIAL_OPTIONS = wardrobeOptions.materialGroups.flatMap((group) => group.options);
+export const PATTERN_OPTIONS = wardrobeOptions.patternGroups.flatMap((group) => group.options);
+export const VISUAL_ONLY_MATERIALS = ["牛仔", "皮革", "人造革", "麂皮", "灯芯绒", "抓绒", "针织", "网眼"];
 export const THICKNESS_OPTIONS = ["薄", "适中", "厚"];
 
 const subtypePrompt = Object.entries(CATEGORY_OPTIONS)
@@ -15,18 +16,20 @@ export const RECOGNITION_PROMPT = `你是一个帮助用户整理个人衣橱的
 必须遵守：
 1. 只填写图片中能够看清或从标签文字中读到的信息；无法确认时使用 null、空字符串或空数组。
 2. 普通衣物照片不能证明棉、亚麻、羊毛、聚酯纤维或混纺等纤维成分。只有标签文字清楚写明时才能填写这些材质。
-3. 牛仔或皮革外观可以作为待用户确认的候选。不要判断价格、质量、是否合身，也不要决定穿搭场景。
+3. 牛仔、皮革、灯芯绒、抓绒、针织或网眼等明显外观可以作为待用户确认的材质候选。不要判断价格、质量、是否合身，也不要决定穿搭场景。
 4. 主颜色必须选择最接近的一个；如果列表中没有合适颜色，选择“其他”。
-5. category、subtype、color、material、thickness 只能使用下面列出的值，不要自行创造选项。
-6. labelText 只收录标签中实际可读的文字。careNotes 用简洁中文整理洗护要求。
-7. 输出必须是合法 JSON，不要输出 Markdown、解释或代码围栏。
+5. 图案可以根据衣物主图识别；材质允许多个，只填写可见或标签能确认的值。
+6. category、subtype、color、materials、pattern、thickness 只能使用下面列出的值，不要自行创造选项。
+7. labelText 只收录标签中实际可读的文字。careNotes 用简洁中文整理洗护要求。
+8. 输出必须是合法 JSON，不要输出 Markdown、解释或代码围栏。
 
 可选值：
 - category: top, bottom, shoes, socks, outer
 - subtype:
 ${subtypePrompt}
 - color: ${COLOR_OPTIONS.join(", ")}
-- material: 棉, 亚麻, 羊毛, 牛仔, 聚酯纤维, 皮革, 混纺
+- materials: ${MATERIAL_OPTIONS.join(", ")}
+- pattern: ${PATTERN_OPTIONS.join(", ")}
 - thickness: 薄, 适中, 厚
 
 JSON 结构：
@@ -34,7 +37,8 @@ JSON 结构：
   "category": "top 或 null",
   "subtype": "T恤 或 null",
   "color": "黑色 或 null",
-  "material": "棉 或 null",
+  "materials": ["棉"],
+  "pattern": "纯色 或 null",
   "thickness": "薄 或 null",
   "size": "标签中读到的尺码或空字符串",
   "careNotes": "简洁的中文洗护提醒或空字符串",
@@ -72,9 +76,19 @@ export function normalizeRecognition(value, { hasLabel = false } = {}) {
     : null;
   const colorCandidate = stringOrNull(source.color);
   const color = colorCandidate && COLOR_OPTIONS.includes(colorCandidate) ? colorCandidate : null;
-  const materialCandidate = stringOrNull(source.material);
+  const requestedMaterials = Array.isArray(source.materials)
+    ? source.materials
+    : stringOrNull(source.material)
+      ? [source.material]
+      : [];
   const materialAllowed = hasLabel ? MATERIAL_OPTIONS : VISUAL_ONLY_MATERIALS;
-  const material = materialCandidate && materialAllowed.includes(materialCandidate) ? materialCandidate : null;
+  const materials = [...new Set(requestedMaterials
+    .map(stringOrNull)
+    .filter((item) => item && materialAllowed.includes(item)))]
+    .slice(0, 5);
+  const material = materials.length > 1 ? "混纺" : materials[0] ?? null;
+  const patternCandidate = stringOrNull(source.pattern);
+  const pattern = patternCandidate && PATTERN_OPTIONS.includes(patternCandidate) ? patternCandidate : null;
   const thicknessCandidate = stringOrNull(source.thickness);
   const thickness = thicknessCandidate && THICKNESS_OPTIONS.includes(thicknessCandidate) ? thicknessCandidate : null;
   const uncertaintyNotes = Array.isArray(source.uncertaintyNotes)
@@ -86,6 +100,8 @@ export function normalizeRecognition(value, { hasLabel = false } = {}) {
     subtype,
     color,
     material,
+    materials,
+    pattern,
     thickness,
     size: hasLabel ? limitedText(source.size, 60) : "",
     careNotes: hasLabel ? limitedText(source.careNotes, 500) : "",

@@ -123,6 +123,28 @@ test("treats shades in the same expanded color family as compatible", () => {
   assert.equal(engine.colorsWorkTogether("玫红", "墨绿"), false);
 });
 
+test("uses multi-material and pattern details in outfit scoring", () => {
+  const plainItems = [
+    garment("top", "top", { materials: ["棉", "氨纶"], pattern: "纯色" }),
+    garment("bottom", "bottom", { pattern: "纯色" }),
+    garment("shoes", "shoes", { pattern: "纯色" }),
+    garment("socks", "socks", { pattern: "纯色" }),
+  ];
+  const competingPatterns = plainItems.map((item) => (
+    item.category === "top"
+      ? { ...item, pattern: "宽条纹" }
+      : item.category === "bottom"
+        ? { ...item, pattern: "大格纹" }
+        : item
+  ));
+
+  assert.ok(engine.scoreItem(plainItems[0], "casual", 30) > engine.scoreItem(garment("unknown", "top"), "casual", 30));
+  assert.ok(
+    engine.scoreOutfit(plainItems, "casual", warmWeather).style
+      > engine.scoreOutfit(competingPatterns, "casual", warmWeather).style,
+  );
+});
+
 test("recognizes specific sports shoes in a gym outfit", () => {
   const outfit = engine.buildOutfit([
     garment("top", "top", { subtype: "运动上衣" }),
