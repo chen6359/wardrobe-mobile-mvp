@@ -2558,6 +2558,9 @@ function WardrobeScreen({
   const [detailProgress, setDetailProgress] = useState(0);
   const [detailMessage, setDetailMessage] = useState("");
   const [draft, setDraft] = useState({
+    category: "top" as Category,
+    subtype: subtypeOptions.top[0],
+    color: "黑色",
     photo: "",
     material: "不知道",
     thickness: "不知道",
@@ -2574,6 +2577,9 @@ function WardrobeScreen({
 
   function openGarment(item: Garment) {
     setDraft({
+      category: item.category,
+      subtype: item.subtype,
+      color: item.color,
       photo: item.photo,
       material: item.material,
       thickness: item.thickness,
@@ -2682,10 +2688,25 @@ function WardrobeScreen({
     }));
   }
 
+  function changeDraftCategory(next: Category) {
+    setDraft((previous) => ({
+      ...previous,
+      category: next,
+      subtype: subtypeOptions[next][0],
+    }));
+  }
+
   function saveDetails(event: FormEvent) {
     event.preventDefault();
     if (!selectedItem) return;
-    updateGarment(selectedItem.id, draft);
+    updateGarment(selectedItem.id, {
+      ...draft,
+      totalCount: draft.category === "socks" ? selectedItem.totalCount ?? 1 : undefined,
+      cleanCount: draft.category === "socks"
+        ? selectedItem.cleanCount ?? (selectedItem.state === "ready" ? 1 : 0)
+        : undefined,
+    });
+    setActiveCategory(draft.category);
     setSelectedId(null);
   }
 
@@ -2763,8 +2784,8 @@ function WardrobeScreen({
           <form className="garment-detail" role="dialog" aria-modal="true" aria-labelledby="garment-detail-title" onSubmit={saveDetails}>
             <header>
               <div>
-                <p>{categoryLabels[selectedItem.category]}</p>
-                <h2 id="garment-detail-title">{selectedItem.color}{selectedItem.subtype}</h2>
+                <p>{categoryLabels[draft.category]}</p>
+                <h2 id="garment-detail-title">{draft.color}{draft.subtype}</h2>
               </div>
               <button ref={detailCloseRef} type="button" onClick={() => setSelectedId(null)} aria-label="关闭衣物详情">×</button>
             </header>
@@ -2776,6 +2797,25 @@ function WardrobeScreen({
             </label>
 
             <div className="detail-fields">
+              <label>衣物大类
+                <select value={draft.category} onChange={(event) => changeDraftCategory(event.target.value as Category)}>
+                  {(Object.keys(categoryLabels) as Category[]).map((item) => <option value={item} key={item}>{categoryLabels[item]}</option>)}
+                </select>
+              </label>
+              <label>具体类别
+                <select value={draft.subtype} onChange={(event) => setDraft((previous) => ({ ...previous, subtype: event.target.value }))}>
+                  {subtypeOptions[draft.category].map((item) => <option key={item}>{item}</option>)}
+                </select>
+              </label>
+              <label>主颜色
+                <select value={draft.color} onChange={(event) => setDraft((previous) => ({ ...previous, color: event.target.value }))}>
+                  {colorOptionGroups.map((group) => (
+                    <optgroup label={group.label} key={group.label}>
+                      {group.options.map((item) => <option key={item}>{item}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+              </label>
               <label>材质
                 <select value={draft.material} onChange={(event) => setDraft((previous) => ({ ...previous, material: event.target.value }))}>
                   {["不知道", "棉", "亚麻", "羊毛", "牛仔", "聚酯纤维", "皮革", "混纺"].map((item) => <option key={item}>{item}</option>)}

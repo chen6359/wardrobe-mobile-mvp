@@ -138,7 +138,9 @@ test("uses one expanded clothing and color dictionary in add and edit forms", as
   const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
   const options = await readFile(new URL("../shared/wardrobe-options.json", import.meta.url), "utf8");
   assert.match(source, /import \{ colorOptionGroups, subtypeOptions \}/);
-  assert.equal((source.match(/colorOptionGroups\.map/g) ?? []).length, 2);
+  assert.equal((source.match(/colorOptionGroups\.map/g) ?? []).length, 3);
+  assert.match(source, /衣物大类/);
+  assert.match(source, /changeDraftCategory/);
   for (const item of ["连帽卫衣", "工装裤", "乐福鞋", "隐形袜", "冲锋衣", "米白", "牛仔蓝", "橄榄绿", "多色/拼色"]) {
     assert.match(options, new RegExp(item));
   }
