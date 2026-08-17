@@ -25,9 +25,12 @@ import {
 } from "./outfit-engine";
 import {
   AiRecognitionError,
-  aiRecognitionEndpoint,
   recognizeGarmentWithAi,
 } from "./ai-recognition";
+import {
+  arrangePhotoWithoutCutout,
+  removeBackgroundAndArrange,
+} from "./photo-cleanup";
 import {
   colorOptionGroups,
   materialOptionGroups,
@@ -1483,6 +1486,12 @@ function AddScreen({
   const [color, setColor] = useState("黑色");
   const [state, setState] = useState<GarmentState>("ready");
   const [photo, setPhoto] = useState("");
+  const [originalPhoto, setOriginalPhoto] = useState("");
+  const [cleanedPhoto, setCleanedPhoto] = useState("");
+  const [photoView, setPhotoView] = useState<"cleaned" | "original">("original");
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+  const [cleanupProgress, setCleanupProgress] = useState(0);
+  const [cleanupStatus, setCleanupStatus] = useState<"idle" | "done" | "fallback">("idle");
   const [materials, setMaterials] = useState<string[]>([]);
   const [pattern, setPattern] = useState("纯色");
   const [thickness, setThickness] = useState("不知道");
@@ -1500,6 +1509,7 @@ function AddScreen({
   const [labelBusy, setLabelBusy] = useState(false);
   const [labelProgress, setLabelProgress] = useState(0);
   const [lastAdded, setLastAdded] = useState<Garment | null>(null);
+  const photoInputId = useId();
   const photoInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const optionalFieldsRef = useRef<HTMLDetailsElement>(null);
@@ -1518,12 +1528,55 @@ function AddScreen({
     setPhotoBusy(true);
     setMessage("");
     try {
-      setPhoto(await compressImage(file));
+      const image = await compressImage(file);
+      setOriginalPhoto(image);
+      setCleanedPhoto("");
+      setPhoto(image);
+      setPhotoView("original");
+      setCleanupStatus("idle");
+      setPhotoBusy(false);
+      void cleanPhoto(image);
     } catch {
       setMessage("这张照片没有读取成功，请重新拍摄或换一张。 ");
-    } finally {
       setPhotoBusy(false);
     }
+  }
+
+  async function cleanPhoto(source = originalPhoto) {
+    if (!source || cleanupBusy) return;
+    setCleanupBusy(true);
+    setCleanupProgress(.03);
+    setCleanupStatus("idle");
+    try {
+      const cleaned = await removeBackgroundAndArrange(source, ({ progress }) => {
+        setCleanupProgress(progress);
+      });
+      setCleanedPhoto(cleaned);
+      setPhoto(cleaned);
+      setPhotoView("cleaned");
+      setCleanupStatus("done");
+    } catch {
+      try {
+        const arranged = await arrangePhotoWithoutCutout(source);
+        setCleanedPhoto(arranged);
+        setPhoto(arranged);
+        setPhotoView("cleaned");
+        setCleanupStatus("fallback");
+      } catch {
+        setPhoto(source);
+        setPhotoView("original");
+        setMessage("这张照片没能自动整理，原图已经保留。你可以重试或直接使用。 ");
+      }
+    } finally {
+      setCleanupProgress(1);
+      setCleanupBusy(false);
+    }
+  }
+
+  function showPhoto(next: "cleaned" | "original") {
+    if (next === "cleaned" && !cleanedPhoto) return;
+    setPhotoView(next);
+    setPhoto(next === "cleaned" ? cleanedPhoto : originalPhoto);
   }
 
   async function pickLabelPhoto(event: ChangeEvent<HTMLInputElement>, kind: "care" | "hangtag") {
@@ -1571,7 +1624,7 @@ function AddScreen({
     setMessage("正在看这件衣服，可能需要十几秒…");
     try {
       const images = [
-        { kind: "garment" as const, dataUrl: photo },
+        { kind: "garment" as const, dataUrl: originalPhoto || photo },
         ...(careLabelPhoto ? [{ kind: "care_label" as const, dataUrl: careLabelPhoto }] : []),
         ...(hangtagPhoto ? [{ kind: "hangtag" as const, dataUrl: hangtagPhoto }] : []),
       ];
@@ -1654,6 +1707,10 @@ function AddScreen({
     setData((previous) => ({ ...previous, garments: nextGarments }));
     setLastAdded(garment);
     setPhoto("");
+    setOriginalPhoto("");
+    setCleanedPhoto("");
+    setPhotoView("original");
+    setCleanupStatus("idle");
     if (photoInputRef.current) photoInputRef.current.value = "";
     setCareLabelPhoto("");
     setHangtagPhoto("");
@@ -1709,20 +1766,59 @@ function AddScreen({
         </div>
 
         <form className="garment-form" onSubmit={submit} ref={formRef}>
-          <label className={`photo-picker ${photo ? "has-photo" : ""}`}>
-            {photo ? <img src={photo} alt="准备添加的衣服" /> : <div><b>＋</b><span>{photoBusy ? "正在处理照片…" : "拍照或从相册选择"}</span><small>平铺或挂起来拍，更容易看清颜色</small></div>}
-            <input ref={photoInputRef} type="file" accept="image/*" onChange={pickPhoto} />
-          </label>
-
-          {photo && aiRecognitionEndpoint() && (
-            <section className="ai-entry-card" aria-live="polite">
-              <div>
-                <strong>少填几项，先让我认一下</strong>
-                <p>照片会发送至阿里云识别，结果仍由你确认后保存。</p>
+          {photo ? (
+            <section className="photo-workbench" aria-live="polite">
+              <label className="photo-picker has-photo" htmlFor={photoInputId}>
+                <span className="visually-hidden">选择另一张衣服照片</span>
+                <img src={photo} alt={photoView === "cleaned" ? "整理后的衣服" : "衣服原图"} />
+                <input id={photoInputId} ref={photoInputRef} type="file" accept="image/*" onChange={pickPhoto} />
+                <span className={`photo-status ${cleanupStatus === "done" ? "is-done" : ""}`}>
+                  {cleanupBusy
+                    ? `正在整理 ${Math.round(cleanupProgress * 100)}%`
+                    : cleanupStatus === "done"
+                      ? "主体已整理"
+                      : cleanupStatus === "fallback"
+                        ? "已居中整理"
+                        : "原图"}
+                </span>
+              </label>
+              <div className="photo-workbench-bar">
+                <div className="photo-view-switch" aria-label="选择照片版本">
+                  <button className={photoView === "cleaned" ? "selected" : ""} type="button" disabled={!cleanedPhoto} onClick={() => showPhoto("cleaned")}>整理后</button>
+                  <button className={photoView === "original" ? "selected" : ""} type="button" onClick={() => showPhoto("original")}>原图</button>
+                </div>
+                <div className="photo-utility-actions">
+                  {!cleanupBusy && cleanupStatus !== "done" && <button type="button" onClick={() => void cleanPhoto()}>重新整理</button>}
+                  <button type="button" onClick={() => photoInputRef.current?.click()}>换照片</button>
+                </div>
               </div>
-              <button type="button" onClick={() => void recognizeWithAi()} disabled={aiBusy || photoBusy || labelBusy}>
-                {aiBusy ? "正在识别，稍等一下…" : "帮我填写衣服信息"}
+              <p className="photo-cleanup-note">
+                {cleanupStatus === "fallback"
+                  ? "衣物主体不够清楚，先完成了居中整理；你可以保留原图或重新尝试。"
+                  : "整理在这台设备上完成，确认前可以随时切回原图。"}
+              </p>
+            </section>
+          ) : (
+            <label className="photo-picker" htmlFor={photoInputId}>
+              <span className="visually-hidden">选择衣服照片</span>
+              <div><b>＋</b><span>{photoBusy ? "正在处理照片…" : "拍照或从相册选择"}</span><small>平铺或挂起来拍，更容易看清颜色</small></div>
+              <input id={photoInputId} ref={photoInputRef} type="file" accept="image/*" onChange={pickPhoto} />
+            </label>
+          )}
+
+          {photo && (
+            <section className="ai-entry-card" aria-live="polite">
+              <span className="ai-entry-symbol" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 2.75c.55 4.43 2.82 6.7 7.25 7.25-4.43.55-6.7 2.82-7.25 7.25-.55-4.43-2.82-6.7-7.25-7.25C9.18 9.45 11.45 7.18 12 2.75Z"/><path d="M19 15.5c.2 1.65 1.1 2.55 2.75 2.75-1.65.2-2.55 1.1-2.75 2.75-.2-1.65-1.1-2.55-2.75-2.75 1.65-.2 2.55-1.1 2.75-2.75Z"/></svg>
+              </span>
+              <div>
+                <strong>AI 先帮你看</strong>
+                <p>自动填写类别、颜色和图案，你只需要检查。</p>
+              </div>
+              <button type="button" onClick={() => void recognizeWithAi()} disabled={aiBusy || photoBusy || cleanupBusy || labelBusy}>
+                {aiBusy ? "正在识别…" : "识别这件衣服"}
               </button>
+              <p className="ai-entry-privacy">识别时会上传原图；整理照片只在此设备完成。</p>
             </section>
           )}
 
@@ -1842,7 +1938,7 @@ function AddScreen({
               </div>
             </section>
           ) : (
-            <button className="primary-button full" type="submit" disabled={photoBusy || aiBusy || labelBusy}>放进我的衣橱</button>
+            <button className="primary-button full" type="submit" disabled={photoBusy || cleanupBusy || aiBusy || labelBusy}>放进我的衣橱</button>
           )}
         </form>
       </section>

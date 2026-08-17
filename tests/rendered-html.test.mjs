@@ -155,17 +155,36 @@ test("uses one two-level clothing, color, material, and pattern dictionary acros
   }
 });
 
-test("keeps Qwen recognition behind a local backend and user confirmation", async () => {
+test("keeps Qwen recognition behind a configurable backend and user confirmation", async () => {
   const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
   const client = await readFile(new URL("../src/ai-recognition.ts", import.meta.url), "utf8");
-  const server = await readFile(new URL("../server/recognition-server.mjs", import.meta.url), "utf8");
+  const service = await readFile(new URL("../server/recognition-service.mjs", import.meta.url), "utf8");
   assert.match(source, /recognizeGarmentWithAi/);
-  assert.match(source, /结果仍由你确认后保存/);
-  assert.match(source, /帮我填写衣服信息/);
+  assert.match(source, /AI 先帮你看/);
+  assert.match(source, /你只需要检查/);
+  assert.match(source, /识别这件衣服/);
+  assert.match(client, /VITE_AI_RECOGNITION_ENDPOINT/);
   assert.match(client, /127\.0\.0\.1:8787\/api\/recognize/);
-  assert.match(server, /enable_thinking: false/);
-  assert.match(server, /response_format: \{ type: "json_object" \}/);
+  assert.match(service, /enable_thinking: false/);
+  assert.match(service, /response_format: \{ type: "json_object" \}/);
   assert.doesNotMatch(`${source}\n${client}`, /DASHSCOPE_API_KEY/);
+});
+
+test("automatically prepares a clean wardrobe photo without replacing the original", async () => {
+  const source = await readFile(new URL("../src/WardrobeClient.tsx", import.meta.url), "utf8");
+  const cleanup = await readFile(new URL("../src/photo-cleanup.ts", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(source, /removeBackgroundAndArrange/);
+  assert.match(source, /arrangePhotoWithoutCutout/);
+  assert.match(source, /originalPhoto/);
+  assert.match(source, /cleanedPhoto/);
+  assert.match(source, /整理后/);
+  assert.match(source, /主体已整理/);
+  assert.match(cleanup, /uniformBackgroundCutout/);
+  assert.match(cleanup, /Xenova\/modnet/);
+  assert.match(cleanup, /hasLargeInteriorHoles/);
+  assert.match(styles, /\.photo-workbench/);
+  assert.match(styles, /\.photo-view-switch/);
 });
 
 test("keeps recent scenes dynamic and filters the wardrobe by category", async () => {

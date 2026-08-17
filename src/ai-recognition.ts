@@ -34,6 +34,8 @@ export class AiRecognitionError extends Error {
 
 export function aiRecognitionEndpoint() {
   if (typeof window === "undefined") return "";
+  const configured = String(import.meta.env.VITE_AI_RECOGNITION_ENDPOINT || "").trim();
+  if (configured) return configured;
   return ["127.0.0.1", "localhost"].includes(window.location.hostname)
     ? "http://127.0.0.1:8787/api/recognize"
     : "";
