@@ -43,7 +43,7 @@ function readEvent(event) {
   if (Buffer.byteLength(bodyText, "utf8") > 8_000_000) throw new Error("上传内容过大");
   return {
     method: value?.requestContext?.http?.method || value?.httpMethod || "GET",
-    path: value?.rawPath || value?.requestContext?.http?.path || "/",
+    path: value?.rawPath || value?.requestContext?.http?.path || value?.path || "/",
     origin: headers.origin || "",
     forwardedFor: headers["x-forwarded-for"] || value?.requestContext?.http?.sourceIp || "unknown",
     body: JSON.parse(bodyText),

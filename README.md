@@ -38,10 +38,11 @@ pnpm run dev:ai
 - 识别后台不保存上传图片；衣物抠图在用户设备上完成。
 - 不得把 `.env.ai.local`、API Key 或服务端密钥写入前端代码或上传 GitHub。
 
-生产环境使用 `server/fc-handler.mjs` 作为阿里云函数计算 Node.js 处理程序，入口为 `fc-handler.handler`，并配置：
+生产环境可以使用 `server/fc-web-server.mjs` 作为阿里云函数计算 Web 函数启动文件，并配置：
 
 - 环境变量 `DASHSCOPE_API_KEY` 和可选的 `QWEN_VISION_MODEL`。
-- 匿名 HTTP 触发器，允许 `GET`、`POST`、`OPTIONS`。
+- Node.js 20 或更新运行环境，启动命令 `node server/fc-web-server.mjs`，监听端口 `9000`。
+- 公网访问允许 `GET`、`POST`、`OPTIONS`。
 - 前端构建变量 `VITE_AI_RECOGNITION_ENDPOINT` 指向函数的 `/api/recognize` 地址。
 
 ## 本地运行

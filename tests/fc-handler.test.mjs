@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { handler } from "../server/fc-handler.mjs";
 
@@ -22,6 +23,18 @@ test("function health endpoint is public only to approved origins", async () => 
   assert.equal(rejected.statusCode, 403);
 });
 
+test("web server event shape preserves the request path", async () => {
+  const result = await handler({
+    httpMethod: "GET",
+    path: "/health",
+    headers: { origin: "https://chen6359.github.io" },
+    body: "",
+  });
+
+  assert.equal(result.statusCode, 200);
+  assert.equal(JSON.parse(result.body).ok, true);
+});
+
 test("function accepts local development ports and handles preflight", async () => {
   const result = await handler(event({ method: "OPTIONS", origin: "http://127.0.0.1:5174" }));
   assert.equal(result.statusCode, 204);
@@ -32,4 +45,12 @@ test("function rejects malformed recognition requests before calling the model",
   const result = await handler(event({ method: "POST", path: "/api/recognize", body: { images: [] } }));
   assert.equal(result.statusCode, 400);
   assert.match(JSON.parse(result.body).error.message, /衣物主图/);
+});
+
+test("web function entry delegates requests to the secured handler", async () => {
+  const source = await readFile(new URL("../server/fc-web-server.mjs", import.meta.url), "utf8");
+  assert.match(source, /import \{ handler \} from "\.\/fc-handler\.mjs"/);
+  assert.match(source, /0\.0\.0\.0/);
+  assert.match(source, /process\.env\.PORT \|\| 9000/);
+  assert.match(source, /MAX_BODY_BYTES/);
 });
